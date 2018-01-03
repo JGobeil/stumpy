@@ -45,47 +45,17 @@ class SxmFile(ColonHeaderFile):
         self.use_cache = use_cache
 
         if self.is_ok:
-            self.channels = SxmFile.ChannelLoader(self, use_cache)
+            self.channels = SxmFile.ChannelLoader(self)
+
 
     def plot(self, ax=None, channel=None, show_axis=False, figsize=(10, 10)):
-        if ax is None:
-            fig = plt.figure(figsize=figsize)
-            ax = fig.add_subplot(111)
-
-        x1, y1 = (0, 0)
-        x2, y2 = np.array([x1, y1]) + self.size_nm
-
         if channel is None:
-            topo = self.channels[0].data
-            cname = self.channels.names[0]
-        else:
-            topo = self.channels[channel].data
-            cname = self.channels.names[channel]
-
-        ax.imshow(
-            topo,
-            cmap='Blues_r',
-            extent=(x1, x2, y1, y2)
+            channel = 0
+        return SxmChannel(channel=channel, sxm=self).plot(
+            ax=ax,
+            show_axis=show_axis,
+            figsize=figsize,
         )
-
-        if not show_axis:
-            ax.axis('off')
-
-        ax.grid(False)
-
-        name = self.filename
-        current = self.current_nA
-
-        ax.set_title("%s\n%s\n%s/%s - %gpA@%s\n%s" % (
-            self.path,  # filename
-            self.record_datetime,
-            self.size_nm_str,  # size
-            self.size_px_str,  # pixels
-            current,  # current,
-            self.bias_str,  # bias
-            cname,
-        ))
-        return ax
 
     @lazy_property
     def uid(self):
@@ -238,6 +208,16 @@ class SxmFile(ColonHeaderFile):
         return names
 
     @lazy_property
+    def channel_number(self):
+        """ The number of the channels """
+        channel_number = {}
+        for i in range(len(self.channel_names)):
+            channel_number[i] = i
+            channel_number[self.channel_names[i]] = i
+
+        return channel_number
+
+    @lazy_property
     def number_of_channels(self):
         return len(self.channel_names)
 
@@ -257,26 +237,29 @@ class SxmFile(ColonHeaderFile):
         """ Scanning current in nA"""
         return float(self.z_controller[0]['Setpoint'].split()[0]) * 1e12
 
+    @lazy_property
+    def shape(self):
+        return tuple(self.size_px[::-1])
+
+    @lazy_property
+    def chunk_size(self):
+        return 4 * self.size_px.prod()
+
     class ChannelLoader:
         """ Class to load the channels on demand"""
 
-        def __init__(self, sxm, use_cache):
+        def __init__(self, sxm, use_cache=True):
             self.sxm = sxm
 
             # to read data
-            self.shape = tuple(sxm.size_px[::-1])
-            self.chunk_size = 4 * sxm.size_px.prod()
             self.datastart = sxm.datastart
             self.direction = sxm.direction
 
             # channel names
             self.names = sxm.channel_names
+            self.channel_number = sxm.channel_number
 
             # dictionary to find channel number by it number or it name
-            self.channel_number = {}
-            for i in range(len(self.names)):
-                self.channel_number[i] = i
-                self.channel_number[self.names[i]] = i
 
             # channel data caching
             self.use_cache = use_cache
@@ -286,7 +269,7 @@ class SxmFile(ColonHeaderFile):
             return len(self.names)
 
         def __getitem__(self, number_or_name):
-            return from_sxm(self.sxm, number_or_name)
+            return SxmChannel(number_or_name, self)
 
         def get_data(self, number_or_name):
             """ Get the raw numpy array of a channel."""
@@ -329,3 +312,65 @@ def from_sxm(sxm, number_or_name):
         size_nm=sxm.size_nm,
         pos_nm=sxm.pos_nm,
     )
+
+
+class SxmChannel:
+    def __init__(self, channel, sxm: SxmFile):
+
+        """ Get the raw numpy array of a channel."""
+        self.number = sxm.channel_number[channel]
+        self.name = sxm.channel_names[self.number]
+        self.sxm = sxm
+
+        self.size_nm = sxm.size_nm
+        self.filename = sxm.filename
+        self.path = sxm.path
+        self.record_datetime = sxm.record_datetime
+        self.size_nm_str = sxm.size_nm_str
+        self.size_px_str = sxm.size_px_str
+        self.current_nA = sxm.current_nA
+        self.bias_str = sxm.bias_str
+
+        with sxm.file as f:
+            f.seek(sxm.datastart + self.number * sxm.chunk_size)
+            raw = f.read(sxm.chunk_size)
+            self.data = np.frombuffer(raw, dtype='>f4').reshape(*sxm.shape)
+
+        if sxm.direction == 'up':
+            self.data = np.flipud(self.data)
+        if self.number & 0x1:
+            self.data = np.fliplr(self.data)
+
+    def plot(self, ax=None, show_axis=False, figsize=(10, 10)):
+        if ax is None:
+            fig = plt.figure(figsize=figsize)
+            ax = fig.add_subplot(111)
+
+        x1, y1 = (0, 0)
+        x2, y2 = np.array([x1, y1]) + self.size_nm
+
+        ax.imshow(
+            self.data,
+            cmap='Blues_r',
+            extent=(x1, x2, y1, y2)
+        )
+
+        if not show_axis:
+            ax.axis('off')
+
+        ax.grid(False)
+
+        ax.set_title("%s\n%s\n%s/%s - %gpA@%s\n%s" % (
+            self.path,  # filename
+            self.record_datetime,
+            self.size_nm_str,  # size
+            self.size_px_str,  # pixels
+            self.current_nA,  # current,
+            self.bias_str,  # bias
+            self.name,
+        ))
+        return ax
+
+    def save_plot(self, filename, show_axis=False, figsize=(10, 10)):
+        self.plot().ax.get_figure(
+            show_axis=show_axis, figsize=figsize).savefig(filename)
