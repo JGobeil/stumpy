@@ -179,7 +179,7 @@ class BiasSpec(TabHeaderFile):
     # columns name to search for in file. Go through a list until a match.
     channel_names_search_list = {
         'I': ['Current (A)', ],
-        'V': ['Bias_wLI (V)', 'Bias (V)', 'Bias calc (V)', ],
+        'V': ['Bias w LI (V)', 'Bias (V)', 'Bias calc (V)', ],
         'LIX': ['Lock-In X (V)',
                 'Lock-in_X (V)',
                 'LI Demod 1 X (A)', ],
@@ -216,7 +216,7 @@ class BiasSpec(TabHeaderFile):
 
         with mpl_context('ggplot'):
             ax = self.dIdV.plot(
-                x=self.keys.V, y=self.name, ax=ax, **kwargs
+                x=self.keys.V, y=self.serie_number, ax=ax, **kwargs
             )
             if title is not None:
                 ax.get_figure().set_title(title)
@@ -237,13 +237,13 @@ class BiasSpec(TabHeaderFile):
 
     @property
     def dIdV(self):
-        return self.data.rename(columns={self.keys.dIdV: self.name})
+        return self.data.rename(columns={self.keys.dIdV: self.serie_number})
 
     @property
     def name(self):
         return self.serie_name + "%.3i" % self.serie_number
 
-    def infer_keys(self, LI='LIX'):
+    def infer_keys(self, LI='LIY'):
         """ Infer the key names from the file header."""
         k = {}
         for key, names in self._cnsl.items():
@@ -296,46 +296,8 @@ class BiasSpec(TabHeaderFile):
 
         return df
 
-    @lazy_property
-    def uid(self):
-        return '-'.join([
-            'BSP',
-            self.start_time.strftime('%Y%m%d-%H%M%S'),
-            hashlib.md5(''.join(sorted(self.header.values())).encode()
-                        ).hexdigest()[0:3],
-        ])
-
-    def __hash__(self):
-        return hash(self.uid)
-
-    def __eq__(self, other):
-        return self.__hash__() == other.__hash__()
-
     def __repr__(self):
-        return "%s (%gV .. %gV)" % (self.uid, self.v_start, self.v_end)
-
-    @lazy_property
-    def info(self):
-        return {
-            'path': self.filename,
-            'obj': self,
-            'start_time': self.start_time,
-            'end_time': self.end_time,
-            'V_start': self.v_start,
-            'V_end': self.v_end,
-            'pixels': self.pixels,
-            'name': self.name,
-            'serie_name': self.serie_name,
-            'serie_number': self.serie_number,
-        }
-
-    @lazy_property
-    def start_time(self):
-        return Parse.datetime(*self.header['Start time'].split())
-
-    @lazy_property
-    def end_time(self):
-        return Parse.datetime(*self.header['Saved Date'].split())
+        return "%s (%gV .. %gV)" % (self.serie_number, self.v_start, self.v_end)
 
     @lazy_property
     def v_start(self):

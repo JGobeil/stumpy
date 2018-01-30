@@ -68,3 +68,104 @@ class DataSetBase:
 
     def __len__(self):
         return len(self.data)
+
+
+    def get(self, *things, basename=None):
+        out = []
+        for t in things:
+            if isinstance(int, t):
+                out.append()
+
+
+#from glob import glob
+#from os.path import join as pjoin
+#from types import SimpleNamespace
+#
+#
+#class DataGroup:
+#    def __init__(self, cache=None):
+#        if cache is None:
+#            self._cache = {}
+#        else:
+#            self._cache = cache
+#
+#        self.sxms = None
+#
+#    def add(*files):
+#        sxms = [f for f in files is f[-3:] == 'sxm']
+#        if len(sxms) > 0:
+#            if self.sxms is None:
+#                self.sxms = SxmDataGroup()
+#            self.sxms.add(*sxms)
+#
+#
+#class SxmDataGroup(DataGroup):
+#    def __init__(self, cache=None):
+#        super().__init__(cache=cache)
+#        self.series = {}
+#
+#    def add(*files):
+#        log = SimpleNamespace(
+#            total=0,
+#            cache_hit=0,
+#            new_basename=[],
+#            bad_sxm=0,
+#        )
+#
+#    for file in files:
+#        if file in self._cache:
+#            out.cache_hit += 1
+#            sxm = self._cache
+#        else:
+#            sxm = SxmFile(file)
+#
+#        if not sxm.is_ok:
+#            out.bad_sxm += 1
+#            continue
+#
+#        if sxm.serie_name not in self.series:
+#            self.series.append(sxm.serie_name)
+#            out.new_series.append(sxm.serie_name)
+#
+#
+#class DataPath(DataGroup):
+#    def __init__(self, *paths, cache=None):
+#        self.paths = paths
+#        if cache is None:
+#            self._cache = {}
+#        else:
+#            self._cache = cache
+#
+#        self.series = {}
+#
+#    def read_paths(self):
+#        for path in paths:
+#            self._read_path(path)
+#
+#    def _read_path(self, path):
+#        self._read_sxms(path)
+#
+#    def _read_sxms(self, path):
+#        out = SimpleNamespace(
+#            total=0,
+#            cache_hit=0,
+#            new_basename=[],
+#            bad_sxm=0,
+#        )
+#        files = glob(pjoin(os.path, '*.sxm'))
+#
+#        for file in files:
+#            if file in self._cache:
+#                out.cache_hit += 1
+#                sxm = self._cache
+#            else:
+#                sxm = SxmFile(file)
+#
+#            if not sxm.is_ok:
+#                out.bad_sxm += 1
+#                continue
+#
+#            if sxm.serie_name not in self.series:
+#                self.series.append(sxm.serie_name)
+#                out.new_basename.append(sxm.serie_name)
+

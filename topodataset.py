@@ -67,3 +67,5 @@ class SxmDataSet(DataSetBase):
             obj.plot(ax=ax)
             fig.savefig(fn, bbox_inches='tight', dpi=150)
             ax.clear()
+
+

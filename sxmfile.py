@@ -2,15 +2,15 @@
 
 import hashlib
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from .helper import get_logger
 from .helper.fileparser import ColonHeaderFile
 from .helper.fileparser import Parse
 from .helper.lazy import lazy_property
-from .topo.topo import Topo
-from .topo.topo import topomod
+
+from .plotting import create_figure, add_title
+from .plotting import no_grid, no_axis, no_ticks
 
 log = get_logger(__name__)
 
@@ -30,7 +30,7 @@ class SxmFile(ColonHeaderFile):
     header_end = ':SCANIT_END:'
     dataoffset = 4
 
-    def __init__(self, filename, common_path=None, use_cache=True):
+    def __init__(self, filename, common_path=None):
         """ Open a sxm file.
 
         Parameters
@@ -42,20 +42,14 @@ class SxmFile(ColonHeaderFile):
         """
         super().__init__(filename, common_path)
 
-        self.use_cache = use_cache
-
         if self.is_ok:
-            self.channels = SxmFile.ChannelLoader(self)
+            self.channels = {i: SxmChannel(i, self) for i
+                             in range(self.number_of_channels)}
 
-
-    def plot(self, ax=None, channel=None, show_axis=False, figsize=(10, 10)):
+    def plot(self, ax=None, channel=None, **kwargs):
         if channel is None:
             channel = 0
-        return SxmChannel(channel=channel, sxm=self).plot(
-            ax=ax,
-            show_axis=show_axis,
-            figsize=figsize,
-        )
+        return self.channels[channel].plot(ax=ax, **kwargs)
 
     @lazy_property
     def uid(self):
@@ -189,7 +183,7 @@ class SxmFile(ColonHeaderFile):
         return float(self.header['SCAN_ANGLE'])
 
     @lazy_property
-    def data_info(self):
+    def channels_info(self):
         """ Table data info"""
         return Parse.table(self.header['DATA_INFO'],
                            int, str, str, str, float, float)
@@ -198,28 +192,29 @@ class SxmFile(ColonHeaderFile):
     def channel_names(self):
         """ The names of the channels with -fwd or -bwd if the scan is in
         both direction"""
-        names = []
-        for channel in self.data_info:
+        channel_names = []
+        for channel in self.channels_info:
             name = channel['Name']
-            if channel['Direction'] == 'both':
-                names.extend((name + '-fwd', name + '-bwd'))
+            direction = channel['Direction']
+            if direction == 'both':
+                channel_names.extend([name + '-fwd', name + '-bwd'])
             else:
-                names.append('%s (%s)' % (name, channel['Direction']))
-        return names
+                channel_names.append(name + '-' + direction)
+        return channel_names
 
     @lazy_property
     def channel_number(self):
         """ The number of the channels """
         channel_number = {}
-        for i in range(len(self.channel_names)):
+        for i in range(self.number_of_channels):
             channel_number[i] = i
             channel_number[self.channel_names[i]] = i
-
         return channel_number
 
     @lazy_property
     def number_of_channels(self):
-        return len(self.channel_names)
+        return sum([2 if channel['Direction'] == 'both' else 1
+                    for channel in self.channels_info])
 
     @lazy_property
     def comment(self):
@@ -245,132 +240,93 @@ class SxmFile(ColonHeaderFile):
     def chunk_size(self):
         return 4 * self.size_px.prod()
 
-    class ChannelLoader:
-        """ Class to load the channels on demand"""
 
-        def __init__(self, sxm, use_cache=True):
-            self.sxm = sxm
-
-            # to read data
-            self.datastart = sxm.datastart
-            self.direction = sxm.direction
-
-            # channel names
-            self.names = sxm.channel_names
-            self.channel_number = sxm.channel_number
-
-            # dictionary to find channel number by it number or it name
-
-            # channel data caching
-            self.use_cache = use_cache
-            self._channel_cache = {}
-
-        def __len__(self):
-            return len(self.names)
-
-        def __getitem__(self, number_or_name):
-            return SxmChannel(number_or_name, self)
-
-        def get_data(self, number_or_name):
-            """ Get the raw numpy array of a channel."""
-            n = self.channel_number[number_or_name]
-            sxm = self.sxm
-
-            # use the cached value if available
-            if self.use_cache and n in self._channel_cache:
-                return self._channel_cache[n]
-
-            with self.sxm.file as sxm:
-                sxm.seek(self.datastart + n * self.chunk_size)
-                raw = sxm.read(self.chunk_size)
-                data = np.frombuffer(raw, dtype='>f4').reshape(*self.shape)
-
-            if self.direction == 'up':
-                data = np.flipud(data)
-            if n & 0x1:
-                data = np.fliplr(data)
-
-            if self.use_cache:
-                self._channel_cache[n] = data
-            return data
-
-        def __delitem__(self, number_or_name):
-            n = self.channel_number[number_or_name]
-
-            if n in self._channel_cache:
-                del self._channel_cache[n]
-
-        def reset_cache(self):
-            for i in range(len(self)):
-                del self[i]
-
-
-@topomod(topo_method=False)
-def from_sxm(sxm, number_or_name):
-    return Topo(
-        data=sxm.channels.get_data(number_or_name),
-        size_nm=sxm.size_nm,
-        pos_nm=sxm.pos_nm,
-    )
-
-
+# Modification and plotting of sxm channel
 class SxmChannel:
-    def __init__(self, channel, sxm: SxmFile):
+    def __init__(self, channel_number: int, sxm: SxmFile):
 
         """ Get the raw numpy array of a channel."""
-        self.number = sxm.channel_number[channel]
-        self.name = sxm.channel_names[self.number]
+        self.number = channel_number
+        self.name = sxm.channel_names[channel_number]
         self.sxm = sxm
+        self.plot = _SxmChannelPlot(self)
 
-        self.size_nm = sxm.size_nm
-        self.filename = sxm.filename
-        self.path = sxm.path
-        self.record_datetime = sxm.record_datetime
-        self.size_nm_str = sxm.size_nm_str
-        self.size_px_str = sxm.size_px_str
-        self.current_nA = sxm.current_nA
-        self.bias_str = sxm.bias_str
-
+    @lazy_property
+    def data(self):
+        sxm = self.sxm
         with sxm.file as f:
             f.seek(sxm.datastart + self.number * sxm.chunk_size)
             raw = f.read(sxm.chunk_size)
-            self.data = np.frombuffer(raw, dtype='>f4').reshape(*sxm.shape)
+            data = np.frombuffer(raw, dtype='>f4').reshape(*sxm.shape)
 
         if sxm.direction == 'up':
-            self.data = np.flipud(self.data)
+            data = np.flipud(data)
         if self.number & 0x1:
-            self.data = np.fliplr(self.data)
+            data = np.fliplr(data)
+        return data
 
-    def plot(self, ax=None, show_axis=False, figsize=(10, 10)):
+
+class _SxmChannelPlot:
+    def __init__(self, sxmchannel: SxmChannel):
+        self.channel = sxmchannel
+        self.sxm = sxmchannel.sxm
+
+    def __call__(
+            self,
+            ax=None,
+            show_axis=False,
+            size='normal',
+            info='normal',
+            cmap='Blues_r',
+            boxed=True,
+            pyplot=True,
+            dpi=100,  # only when not using pyplot
+            ):
+        cnl = self.channel
+        sxm = self.sxm
+
         if ax is None:
-            fig = plt.figure(figsize=figsize)
-            ax = fig.add_subplot(111)
+            figure = create_figure(size=size, pyplot=pyplot, dpi=dpi)
+            ax = figure.add_subplot(111)
 
         x1, y1 = (0, 0)
-        x2, y2 = np.array([x1, y1]) + self.size_nm
+        x2, y2 = np.array([x1, y1]) + sxm.size_nm
 
         ax.imshow(
-            self.data,
-            cmap='Blues_r',
+            cnl.data,
+            cmap=cmap,
             extent=(x1, x2, y1, y2)
         )
 
+        if info == "normal":
+            infostr = "%s\n%s\n%s/%s - %gpA@%s\n%s" % (
+                sxm.path,  # filename
+                sxm.record_datetime,
+                sxm.size_nm_str,  # size
+                sxm.size_px_str,  # pixels
+                sxm.current_nA,  # current,
+                sxm.bias_str,  # bias
+                sxm.name)
+        elif info == "minimal":
+            infostr = "%.3d - %s - %s" % (
+                sxm.serie_number,  # filename
+                sxm.size_nm_str,  # size
+                sxm.bias_str,  # bias
+                )
+        elif info is None:
+            infostr = ""
+        else:
+            infostr = info
+        add_title(ax, infostr)
+
         if not show_axis:
-            ax.axis('off')
-
-        ax.grid(False)
-
-        ax.set_title("%s\n%s\n%s/%s - %gpA@%s\n%s" % (
-            self.path,  # filename
-            self.record_datetime,
-            self.size_nm_str,  # size
-            self.size_px_str,  # pixels
-            self.current_nA,  # current,
-            self.bias_str,  # bias
-            self.name,
-        ))
+            no_axis(ax)
+        if boxed:
+            no_ticks(ax)
+        no_grid(ax)
         return ax
 
-    def save_plot(self, filename, show_axis=False, figsize=(10, 10)):
-        self.plot().ax.get_figure(
-            show_axis=show_axis, figsize=figsize).savefig(filename)
+    def save(self, filename, **kwargs):
+        # TODO: Add auto filename generation
+        self(**kwargs, pyplot=False).get_figure().savefig(filename)
+        return filename
