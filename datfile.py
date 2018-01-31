@@ -1,6 +1,5 @@
 """Open and parse.dat file"""
 
-import hashlib
 import os.path
 from collections import Counter
 from types import SimpleNamespace
@@ -12,7 +11,7 @@ from matplotlib.style import context as mpl_context
 from .helper import get_logger
 from .helper import lazy_property
 from .helper.dataset import DataSetBase
-from .helper.fileparser import Parse
+# from .helper.fileparser import Parse
 from .helper.fileparser import TabHeaderFile
 
 log = get_logger(__name__)
@@ -179,7 +178,7 @@ class BiasSpec(TabHeaderFile):
     # columns name to search for in file. Go through a list until a match.
     channel_names_search_list = {
         'I': ['Current (A)', ],
-        'V': ['Bias w LI (V)', 'Bias (V)', 'Bias calc (V)', ],
+        'V': ['Bias calc (V)', 'Bias (V)', 'Bias w LI (V)', ],
         'LIX': ['Lock-In X (V)',
                 'Lock-in_X (V)',
                 'LI Demod 1 X (A)', ],
@@ -195,17 +194,25 @@ class BiasSpec(TabHeaderFile):
         'dI_LI_ratio': 'dI_vs_LI_ratio',  # 'ratio between numeric and Lock-In
     }
 
-    def __init__(self, filename, common_path=None):
+    def __init__(self,
+            filename, common_path=None,
+            LI='LIY',
+            noise_limits=(0.25, 0.75),
+            ):
         super().__init__(filename, common_path)
+
 
         # use an attribute so it can be changed on specific file if needed
         self._cnsl = BiasSpec.channel_names_search_list
         self._cfn = BiasSpec.calculated_field_names
 
-        self.keys = self.infer_keys()
 
         # use to cut the current data to limit the noise at high current
         self._noise_limits = np.array([0.25, 0.75])
+
+        if LI not in ['LIY', 'LIX']:
+            log.wrn("Lock-In channes should be 'LIX' or 'LIY'")
+        self.keys = self.infer_keys(LI=LI)
 
         log.dbg("Opened: '%s' as BiasSpec (LI: %s; Bias: %s)",
                 self.filename, self.keys.LI, self.keys.V)
@@ -224,7 +231,7 @@ class BiasSpec(TabHeaderFile):
             ax.set_ylabel('dI/dV [nA/V]')
 
             if save is not False:
-                if save == True:
+                if save is True:
                     if title is not None:
                         filename = title + '.png'
                     else:
@@ -275,8 +282,8 @@ class BiasSpec(TabHeaderFile):
     def channel_names(self):
         """ List of channels names that can be found in file."""
 
-        # 'Bias calc (V)' is in file but not in the header, so added manually.
-        return [s.strip() for s in
+        # 'Bias calc (V)' is in file but not in the header.
+        return ['Bias calc (V)', ] + [s.strip() for s in
                 self.header['Bias Spectroscopy>Channels'].split(';')]
 
     def get_data(self):
@@ -287,7 +294,9 @@ class BiasSpec(TabHeaderFile):
         N = len(df[k.V])
         dV = (df[k.V].max() - df[k.V].min()) / N
 
-        ml = np.round(self._noise_limits * N).astype(int)  # limits noise issues
+        # limits noise issues
+
+        ml = np.round(self._noise_limits * N).astype(int)
 
         df[k.NdIdV] = np.gradient(df[k.I], dV, edge_order=2)
         df[k.dI_LI_ratio] = df[k.NdIdV] / df[k.LI]
@@ -297,7 +306,8 @@ class BiasSpec(TabHeaderFile):
         return df
 
     def __repr__(self):
-        return "%s (%gV .. %gV)" % (self.serie_number, self.v_start, self.v_end)
+        return "%s (%gV .. %gV)" % (
+                self.serie_number, self.v_start, self.v_end)
 
     @lazy_property
     def v_start(self):

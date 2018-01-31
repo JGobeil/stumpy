@@ -182,7 +182,7 @@ class TabHeaderFile(RegexHeaderParser):
         try:
             with self.file as f:
                 f.seek(self.datastart)
-                return pd.read_table(f)
+                return pd.read_table(f, sep='\t', )
         except Exception as e:
             self.is_ok = False
             lof.err(str(e))
