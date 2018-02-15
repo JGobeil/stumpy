@@ -194,18 +194,25 @@ class BiasSpec(TabHeaderFile):
         'dI_LI_ratio': 'dI_vs_LI_ratio',  # 'ratio between numeric and Lock-In
     }
 
-    def __init__(self,
-            filename, common_path=None,
-            LI='LIY',
-            noise_limits=(0.25, 0.75),
-            ):
-        super().__init__(filename, common_path)
+    class Opener:
+        def __init__(
+                self,
+                path,  # path to the files
+                basename,  # ex.: Cu3Au(100)_
+                LI='LIY',  # lock-in channel
+        ):
+            pass
 
+    def __init__(self,
+                 filename, common_path=None,
+                 LI='LIY',
+                 noise_limits=(0.25, 0.75),
+                 ):
+        super().__init__(filename, common_path)
 
         # use an attribute so it can be changed on specific file if needed
         self._cnsl = BiasSpec.channel_names_search_list
         self._cfn = BiasSpec.calculated_field_names
-
 
         # use to cut the current data to limit the noise at high current
         self._noise_limits = np.array([0.25, 0.75])
@@ -281,10 +288,11 @@ class BiasSpec(TabHeaderFile):
     @lazy_property
     def channel_names(self):
         """ List of channels names that can be found in file."""
+        header_names = [s.strip() for s in
+                        self.header['Bias Spectroscopy>Channels'].split(';')]
 
         # 'Bias calc (V)' is in file but not in the header.
-        return ['Bias calc (V)', ] + [s.strip() for s in
-                self.header['Bias Spectroscopy>Channels'].split(';')]
+        return ['Bias calc (V)', ] + header_names
 
     def get_data(self):
         k = self.keys
@@ -292,7 +300,7 @@ class BiasSpec(TabHeaderFile):
         df = super().get_data().sort_values(k.V)
 
         N = len(df[k.V])
-        dV = (df[k.V].max() - df[k.V].min()) / N
+        dV = (df[k.V].max() - df[k.V].min()) / N * self.calibration
 
         # limits noise issues
 
@@ -308,6 +316,10 @@ class BiasSpec(TabHeaderFile):
     def __repr__(self):
         return "%s (%gV .. %gV)" % (
                 self.serie_number, self.v_start, self.v_end)
+
+    @lazy_property
+    def calibration(self):
+        return float(self.header['Bias>Calibration (V/V)'])
 
     @lazy_property
     def v_start(self):

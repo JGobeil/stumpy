@@ -8,7 +8,6 @@ from .helper import get_logger
 from .helper.fileparser import ColonHeaderFile
 from .helper.fileparser import Parse
 from .helper.lazy import lazy_property
-
 from .plotting import create_figure, add_title
 from .plotting import no_grid, no_axis, no_ticks
 
