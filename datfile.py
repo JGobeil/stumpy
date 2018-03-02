@@ -194,15 +194,6 @@ class BiasSpec(TabHeaderFile):
         'dI_LI_ratio': 'dI_vs_LI_ratio',  # 'ratio between numeric and Lock-In
     }
 
-    class Opener:
-        def __init__(
-                self,
-                path,  # path to the files
-                basename,  # ex.: Cu3Au(100)_
-                LI='LIY',  # lock-in channel
-        ):
-            pass
-
     def __init__(self,
                  filename, common_path=None,
                  LI='LIY',
@@ -300,7 +291,7 @@ class BiasSpec(TabHeaderFile):
         df = super().get_data().sort_values(k.V)
 
         N = len(df[k.V])
-        dV = (df[k.V].max() - df[k.V].min()) / N * self.calibration
+        dV = (df[k.V].max() - df[k.V].min()) / N
 
         # limits noise issues
 
