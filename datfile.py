@@ -219,24 +219,23 @@ class BiasSpec(TabHeaderFile):
         if 'figsize' not in kwargs:
             kwargs['figsize'] = (10, 7)
 
-        with mpl_context('ggplot'):
-            ax = self.dIdV.plot(
-                x=self.keys.V, y=self.serie_number, ax=ax, **kwargs
-            )
-            if title is not None:
-                ax.get_figure().set_title(title)
-            ax.set_xlabel('Bias [V]')
-            ax.set_ylabel('dI/dV [nA/V]')
+        ax = self.dIdV.plot(
+            x=self.keys.V, y=self.serie_number, ax=ax, **kwargs
+        )
+        if title is not None:
+            ax.get_figure().set_title(title)
+        ax.set_xlabel('Bias [V]')
+        ax.set_ylabel('dI/dV [nA/V]')
 
-            if save is not False:
-                if save is True:
-                    if title is not None:
-                        filename = title + '.png'
-                    else:
-                        filename = self.name + '.png'
+        if save is not False:
+            if save is True:
+                if title is not None:
+                    filename = title + '.png'
                 else:
-                    filename = save
-                ax.get_figure().savefig(filename)
+                    filename = self.name + '.png'
+            else:
+                filename = save
+            ax.get_figure().savefig(filename)
 
             return ax
 
