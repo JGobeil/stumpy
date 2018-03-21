@@ -64,7 +64,7 @@ class Opener:
         return os.path.join(self.datasrc, self.specsname + "%.3d" % nb + '.dat')
 
     def getsxm(self, *numbers):
-        if self.specsname is None:
+        if self.sxmname is None:
             print("Error: Need to specify a sxmname")
             return
 

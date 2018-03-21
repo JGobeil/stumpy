@@ -1,4 +1,4 @@
-"""Open and parse.dat file"""
+"""Open and parse .dat file"""
 
 import os.path
 from collections import Counter
@@ -10,165 +10,11 @@ from matplotlib.style import context as mpl_context
 
 from .helper import get_logger
 from .helper import lazy_property
-from .helper.dataset import DataSetBase
-# from .helper.fileparser import Parse
 from .helper.fileparser import TabHeaderFile
 
+from .plotting import get_figsize
+
 log = get_logger(__name__)
-
-
-class DatDataSet(DataSetBase):
-    def __init__(self, *things, analyse=True, timesplit=False):
-
-        super().__init__(
-            *things,
-            cls=BiasSpec,
-            opener=open_datfile,
-            ext='.dat',
-            sort_key='start_time',
-            index_key='name',
-        )
-
-        self.timesplit = timesplit
-
-        self.series = dict()
-        if analyse:
-            self.analyse()
-
-    def analyse(self):
-        if len(self) == 0:
-            # empty DatDataSet
-            print("EMPTY")
-            return
-
-        self.series = dict()
-        single = []
-
-        uniques = self.data[[
-            'serie_name',
-            'V_start',
-            'V_end',
-            'pixels'
-        ]].copy()
-        uniques['name'] = [str(row.values) for i, row
-                           in uniques.iterrows()]
-        count = Counter(uniques.name)
-        serie_count = Counter()
-
-        if np.all(np.array(list(count.values())) == 1):
-            # single values DatDataSet
-            print("SINGLE VALUE")
-            return
-
-        if len(count) == 1:
-            # single serie DatDataSet
-            log.dbg("Single name DatDataSet (%s)", list(count.keys())[0])
-            if not self.timesplit:
-                return
-
-            start_time = np.roll(self.data.start_time.copy(), -1)
-            end_time = self.data.end_time.copy()
-            start_time[-1] = start_time[-2]
-            end_time[-1] = end_time[-2]
-            timedelta = (start_time - end_time) / np.timedelta64(1, 's')
-
-            ts = timedelta
-            # little trick to find peak
-            ts = np.abs(ts - np.mean(ts))
-            ts = np.abs(ts - np.mean(ts))
-            ts = np.abs(ts - np.mean(ts))
-            splits = np.argwhere(ts > 3 * np.mean(ts))
-
-            self.timesplitted = DatDataSet(analyse=False)
-            self.timesplitted.timedelta = timedelta
-            self.timesplitted.splits = splits
-
-        for name, nb in count.items():
-            data = self.data[uniques.name == name]
-            if nb == 1:
-                single.append(*data.obj)
-            else:
-
-                sname = data.iloc[0].serie_name
-                serie_count.update([sname])
-                i = serie_count[sname]
-
-                self.series["%s_%.3i" % (sname, i)] = DatDataSet(*data.obj)
-
-        self.single = DatDataSet(*single, analyse=False)
-
-        log("Found %d data files [%i single specs - %i series]",
-            len(self), len(self.single), len(self.series))
-
-        # remove _001 from serie when only one
-        # for sname, c in serie_count.items():
-        #    if c == 1:
-        #        self.series[sname] = self.series["%s_001" % sname]
-        #        del self.series["%s_001" % sname]
-
-    @property
-    def paths(self):
-        return self.data['path']
-
-    @property
-    def by_path(self):
-        return {path: obj for path, obj in zip(self.paths, self.objs)}
-
-    def merge(self, other, analyse=True):
-        super().merge(other)
-        if analyse:
-            self.analyse()
-
-    def plot2D(self):
-        objs = self.objs
-
-        data = np.array([obj.data[obj.keys.dIdV] for obj in objs])
-        ax = plt.imshow(data)
-
-        return ax
-
-    def plot_timesplits(self):
-        try:
-            ts = self.timesplitted
-        except AttributeError:
-            log.err("No time split.")
-            return
-
-        timedelta = ts.timedelta
-        splits = ts.splits
-
-        for s in splits:
-            plt.axvline(s)
-
-        return plt.plot(timedelta)
-
-
-def open_datfile(filename, common_path=None):
-    """ Open a .dat file. Return an object corresponding to the appropriate
-    experiment. Implemented for 'bias spectroscopy'.
-
-    Parameters
-    ----------
-    filename: str
-        file to open
-
-    Returns
-    -------
-    BiasSpec or ...?
-
-    """
-    if common_path is None:
-        fn = filename
-    else:
-        fn = os.path.join(common_path, filename)
-
-    with open(fn) as f:
-        exp = f.readline().strip().split('\t')[-1].strip()
-
-    if exp == 'bias spectroscopy':
-        return BiasSpec(filename, common_path)
-    else:
-        return GenericDatFile(filename, common_path)
 
 
 class BiasSpec(TabHeaderFile):
@@ -191,7 +37,9 @@ class BiasSpec(TabHeaderFile):
     calculated_field_names = {
         'NdIdV': 'NdI/dV (V)',  # numerical dI/dV (from current)
         'dIdV': 'dI/dV (nA/V)',  # 'normalized' dI/dV
+        'dIdmV': 'dI/dV (nA/mV)',  # 'normalized' dI/dV
         'dI_LI_ratio': 'dI_vs_LI_ratio',  # 'ratio between numeric and Lock-In
+        'mV': 'Bias (mV)',  # 'ratio between numeric and Lock-In
     }
 
     def __init__(self,
@@ -199,6 +47,7 @@ class BiasSpec(TabHeaderFile):
                  LI='LIY',
                  noise_limits=(0.25, 0.75),
                  ):
+        # read file and parse header
         super().__init__(filename, common_path)
 
         # use an attribute so it can be changed on specific file if needed
@@ -206,7 +55,7 @@ class BiasSpec(TabHeaderFile):
         self._cfn = BiasSpec.calculated_field_names
 
         # use to cut the current data to limit the noise at high current
-        self._noise_limits = np.array([0.25, 0.75])
+        self._noise_limits = np.array(noise_limits)
 
         if LI not in ['LIY', 'LIX']:
             log.wrn("Lock-In channes should be 'LIX' or 'LIY'")
@@ -215,9 +64,9 @@ class BiasSpec(TabHeaderFile):
         log.dbg("Opened: '%s' as BiasSpec (LI: %s; Bias: %s)",
                 self.filename, self.keys.LI, self.keys.V)
 
-    def plot(self, title=None, ax=None, save=False, **kwargs):
+    def plot(self, title=None, ax=None, save=False, size=None, **kwargs):
         if 'figsize' not in kwargs:
-            kwargs['figsize'] = (10, 7)
+            kwargs['figsize'] = get_figsize(size)
 
         ax = self.dIdV.plot(
             x=self.keys.V, y=self.serie_number, ax=ax, **kwargs
@@ -237,7 +86,7 @@ class BiasSpec(TabHeaderFile):
                 filename = save
             ax.get_figure().savefig(filename)
 
-            return ax
+        return ax
 
     @property
     def dIdV(self):
@@ -330,6 +179,14 @@ class BiasSpec(TabHeaderFile):
     @lazy_property
     def pixels(self):
         return int(self.header['Bias Spectroscopy>Num Pixel'])
+
+    @lazy_property
+    def xyz_nm(self):
+        return np.array((
+            float(self.header['X (m)']) * 1e9,
+            float(self.header['Y (m)']) * 1e9,
+            float(self.header['Z (m)']) * 1e9
+        ))
 
 
 class GenericDatFile(TabHeaderFile):

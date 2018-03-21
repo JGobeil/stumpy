@@ -3,8 +3,6 @@ from .sxmfile import SxmFile
 from .topodataset import SxmDataSet
 
 # .dat file
-from .datfile import DatDataSet
-from .datfile import open_datfile
 from .datfile import BiasSpec
 
 # Tranfer function class and function

@@ -3,7 +3,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
 
-def get_figsize(size):
+def get_figsize(size) -> (float, float):
     if isinstance(size, tuple):
         figsize = size
     elif size == 'large':
@@ -15,12 +15,14 @@ def get_figsize(size):
     elif size == 'tiny':
         figsize = (3, 3)
     else:
-        print(size, 'is not reconized as a figure size')
+        print(size, 'is not recognized as a figure size.')
         figsize = (10, 10)
     return figsize
 
 
-def create_figure(size, pyplot=True, dpi=100, **kwargs) -> Figure:
+def create_figure(size=None, pyplot=True, dpi=100, **kwargs) -> Figure:
+    if size is None:
+        size = 'medium'
     figsize = get_figsize(size)
 
     if pyplot:

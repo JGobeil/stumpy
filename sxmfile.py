@@ -3,6 +3,9 @@
 import hashlib
 
 import numpy as np
+import pandas as pd
+from io import StringIO
+from collections import ChainMap
 
 from .helper import get_logger
 from .helper.fileparser import ColonHeaderFile
@@ -64,7 +67,7 @@ class SxmFile(ColonHeaderFile):
     @lazy_property
     def size_nm_str(self):
         nmx, nmy = self.size_nm
-        return "%g nm" % nmx if nmx == nmy else "%gx%g nm" % (nmx, nmy)
+        return "%.5g nm" % nmx if nmx == nmy else "%.5gx%.5g nm" % (nmx, nmy)
 
     @lazy_property
     def size_px_str(self):
@@ -182,7 +185,14 @@ class SxmFile(ColonHeaderFile):
         return float(self.header['SCAN_ANGLE'])
 
     @lazy_property
-    def channels_info(self):
+    def rotation_matrix(self):
+        """ Rotation matrix using the angle of the scan."""
+        theta = np.radians(-self.angle)
+        c, s = np.cos(theta), np.sin(theta)
+        return np.array(((c, -s, 0), (s, c, 0), (0, 0, 1)))
+
+    @lazy_property
+    def data_info(self):
         """ Table data info"""
         return Parse.table(self.header['DATA_INFO'],
                            int, str, str, str, float, float)
@@ -192,7 +202,7 @@ class SxmFile(ColonHeaderFile):
         """ The names of the channels with -fwd or -bwd if the scan is in
         both direction"""
         channel_names = []
-        for channel in self.channels_info:
+        for channel in self.data_info:
             name = channel['Name']
             direction = channel['Direction']
             if direction == 'both':
@@ -213,7 +223,7 @@ class SxmFile(ColonHeaderFile):
     @lazy_property
     def number_of_channels(self):
         return sum([2 if channel['Direction'] == 'both' else 1
-                    for channel in self.channels_info])
+                    for channel in self.data_info])
 
     @lazy_property
     def comment(self):
@@ -239,6 +249,16 @@ class SxmFile(ColonHeaderFile):
     def chunk_size(self):
         return 4 * self.size_px.prod()
 
+    @lazy_property
+    def is_multipass(self):
+        """ Is the scan is multipass? """
+        return 'Multipass-Config' in self.header
+
+    @lazy_property
+    def multipass_config(self):
+        """ The multipass configuration in pandas.DataFrame format."""
+        return pd.read_table(StringIO(self.header['Multipass-Config']))
+
 
 # Modification and plotting of sxm channel
 class SxmChannel:
@@ -249,6 +269,15 @@ class SxmChannel:
         self.name = sxm.channel_names[channel_number]
         self.sxm = sxm
         self.plot = _SxmChannelPlot(self)
+
+        self.info = {
+            'name': self.name,
+            'bias': sxm.bias,
+            'current_nA': sxm.current_nA,
+            'size_px': sxm.size_px,
+            'size_nm': sxm.size_nm,
+        }
+
 
     @lazy_property
     def data(self):
@@ -263,6 +292,44 @@ class SxmChannel:
         if self.number & 0x1:
             data = np.fliplr(data)
         return data
+
+    def subtract_average(self, direction=None):
+        return SxmChannel_SubtractAverage(self, direction=direction)
+
+
+class SxmChannel_SubtractAverage(SxmChannel):
+    def __init__(self, src: SxmChannel, direction=None):
+        """ Subtract Average of each line (default) of columns.
+
+        Parameters
+        ----------
+        direction: str
+            Direction in with to subtract average. None or 'x' subtract
+            average in the 'horizontal' direction'. 'y' for subtraction in
+            the 'vertical' direction'.
+        """
+        self.src = src
+        self._direction = 0
+        self.direction = direction
+        super().__init__(src.number, src.sxm)
+
+    @property
+    def direction(self):
+        return self._direction
+
+    @direction.setter
+    def direction(self, value):
+        if value in [None, 'x']:
+            self._direction = 1
+        elif value in ['y', ]:
+            self._direction = 0
+        else:
+            log.err('Not a valid direction: %s' % value)
+
+    @lazy_property
+    def data(self):
+        data = super().data
+        return data - np.mean(data, axis=0)
 
 
 class _SxmChannelPlot:
@@ -280,6 +347,7 @@ class _SxmChannelPlot:
             boxed=True,
             pyplot=True,
             dpi=100,  # only when not using pyplot
+            **kwargs
             ):
         cnl = self.channel
         sxm = self.sxm
@@ -294,7 +362,8 @@ class _SxmChannelPlot:
         ax.imshow(
             cnl.data,
             cmap=cmap,
-            extent=(x1, x2, y1, y2)
+            extent=(x1, x2, y1, y2),
+            **kwargs
         )
 
         if info == "normal":
