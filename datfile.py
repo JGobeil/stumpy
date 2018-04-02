@@ -38,6 +38,7 @@ class BiasSpec(TabHeaderFile):
         'NdIdV': 'NdI/dV (V)',  # numerical dI/dV (from current)
         'dIdV': 'dI/dV (nA/V)',  # 'normalized' dI/dV
         'dIdmV': 'dI/dV (nA/mV)',  # 'normalized' dI/dV
+        'dIdmV_LI': 'dI/dV (nA/mV) (from LI)',
         'dI_LI_ratio': 'dI_vs_LI_ratio',  # 'ratio between numeric and Lock-In
         'mV': 'Bias (mV)',  # 'ratio between numeric and Lock-In
     }
@@ -46,6 +47,7 @@ class BiasSpec(TabHeaderFile):
                  filename, common_path=None,
                  LI='LIY',
                  noise_limits=(0.25, 0.75),
+                 LI_sensitivy=50,
                  ):
         # read file and parse header
         super().__init__(filename, common_path)
@@ -55,7 +57,9 @@ class BiasSpec(TabHeaderFile):
         self._cfn = BiasSpec.calculated_field_names
 
         # use to cut the current data to limit the noise at high current
-        self._noise_limits = np.array(noise_limits)
+        self.noise_limits = np.array(noise_limits)
+
+        self.LI_sensitivity = LI_sensitivy
 
         if LI not in ['LIY', 'LIX']:
             log.wrn("Lock-In channes should be 'LIX' or 'LIY'")
@@ -64,17 +68,28 @@ class BiasSpec(TabHeaderFile):
         log.dbg("Opened: '%s' as BiasSpec (LI: %s; Bias: %s)",
                 self.filename, self.keys.LI, self.keys.V)
 
-    def plot(self, title=None, ax=None, save=False, size=None, **kwargs):
-        if 'figsize' not in kwargs:
+    def plot(self, title=None, ax=None, save=False, size=None,
+             x=None, y=None, xlabel=None, ylabel=None,
+             **kwargs,):
+        if 'figsize' not in kwargs and ax is None:
             kwargs['figsize'] = get_figsize(size)
 
-        ax = self.dIdV.plot(
-            x=self.keys.V, y=self.serie_number, ax=ax, **kwargs
-        )
+        if x is None:
+            x = self.keys.mV
+        if y is None:
+            y = self.keys.dIdmV
+        if xlabel is None:
+            xlabel = 'Bias [mV]'
+        if ylabel is None:
+            ylabel = 'dI/dV [nA/mV]'
+
+        ax = self.data.plot(x=x, y=y, ax=ax, **kwargs)
+
         if title is not None:
             ax.get_figure().set_title(title)
-        ax.set_xlabel('Bias [V]')
-        ax.set_ylabel('dI/dV [nA/V]')
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
 
         if save is not False:
             if save is True:
@@ -87,10 +102,6 @@ class BiasSpec(TabHeaderFile):
             ax.get_figure().savefig(filename)
 
         return ax
-
-    @property
-    def dIdV(self):
-        return self.data.rename(columns={self.keys.dIdV: self.serie_number})
 
     @property
     def name(self):
@@ -143,12 +154,16 @@ class BiasSpec(TabHeaderFile):
 
         # limits noise issues
 
-        ml = np.round(self._noise_limits * N).astype(int)
+        ml = np.round(self.noise_limits * N).astype(int)
 
+
+        df[k.mV] = df[k.V]*1000
+        df[k.dIdmV_LI] = df[k.LI]*self.LI_sensitivity / 10
         df[k.NdIdV] = np.gradient(df[k.I], dV, edge_order=2)
         df[k.dI_LI_ratio] = df[k.NdIdV] / df[k.LI]
         df.ratio = df[k.dI_LI_ratio][ml[0]:ml[1]].mean()
         df[k.dIdV] = df[k.LI] * df.ratio * 1e9
+        df[k.dIdmV] = df[k.dIdV] / 1000
 
         return df
 

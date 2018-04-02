@@ -13,6 +13,7 @@ from .helper.fileparser import Parse
 from .helper.lazy import lazy_property
 from .plotting import create_figure, add_title
 from .plotting import no_grid, no_axis, no_ticks
+from .topo.topo import Topo
 
 log = get_logger(__name__)
 
@@ -101,6 +102,8 @@ class SxmFile(ColonHeaderFile):
             'pos_y_nm': self.pos_nm[1],
             'serie_name': self.serie_name,
             'serie_number': self.serie_number,
+            'Current (nA)': self.current_nA,
+            'Z (m)': self.Z_m,
         }
 
     @lazy_property
@@ -185,13 +188,6 @@ class SxmFile(ColonHeaderFile):
         return float(self.header['SCAN_ANGLE'])
 
     @lazy_property
-    def rotation_matrix(self):
-        """ Rotation matrix using the angle of the scan."""
-        theta = np.radians(-self.angle)
-        c, s = np.cos(theta), np.sin(theta)
-        return np.array(((c, -s, 0), (s, c, 0), (0, 0, 1)))
-
-    @lazy_property
     def data_info(self):
         """ Table data info"""
         return Parse.table(self.header['DATA_INFO'],
@@ -237,9 +233,24 @@ class SxmFile(ColonHeaderFile):
             str, bool, str, str, str, str)
 
     @lazy_property
+    def current_pA(self):
+        """ Scanning current in pA"""
+        return self.current_A * 1e15
+
+    @lazy_property
     def current_nA(self):
         """ Scanning current in nA"""
-        return float(self.z_controller[0]['Setpoint'].split()[0]) * 1e12
+        return self.current_A * 1e12
+
+    @lazy_property
+    def current_A(self):
+        """ Scanning current in nA"""
+        return float(self.z_controller[0]['Setpoint'].split()[0])
+
+    @lazy_property
+    def Z_m(self):
+        """ Scanning current in nA"""
+        return float(self.header['Z-Controller>Z (m)'])
 
     @lazy_property
     def shape(self):
@@ -263,33 +274,33 @@ class SxmFile(ColonHeaderFile):
 # Modification and plotting of sxm channel
 class SxmChannel:
     def __init__(self, channel_number: int, sxm: SxmFile):
+        self.topo = Topo(self)
 
         """ Get the raw numpy array of a channel."""
-        self.number = channel_number
-        self.name = sxm.channel_names[channel_number]
+        self.channel_number = channel_number
+        self.channel_name = sxm.channel_names[channel_number]
         self.sxm = sxm
         self.plot = _SxmChannelPlot(self)
 
-        self.info = {
-            'name': self.name,
-            'bias': sxm.bias,
-            'current_nA': sxm.current_nA,
-            'size_px': sxm.size_px,
-            'size_nm': sxm.size_nm,
-        }
-
+        if sxm.is_multipass:
+            #TODO: get bias/current for multipass
+            self.bias = sxm.bias
+            self.current = sxm.current_A
+        else:
+            self.bias = sxm.bias
+            self.current = sxm.current_A
 
     @lazy_property
     def data(self):
         sxm = self.sxm
         with sxm.file as f:
-            f.seek(sxm.datastart + self.number * sxm.chunk_size)
+            f.seek(sxm.datastart + self.channel_number * sxm.chunk_size)
             raw = f.read(sxm.chunk_size)
             data = np.frombuffer(raw, dtype='>f4').reshape(*sxm.shape)
 
         if sxm.direction == 'up':
             data = np.flipud(data)
-        if self.number & 0x1:
+        if self.channel_number & 0x1:
             data = np.fliplr(data)
         return data
 
@@ -309,7 +320,6 @@ class SxmChannel_SubtractAverage(SxmChannel):
             the 'vertical' direction'.
         """
         self.src = src
-        self._direction = 0
         self.direction = direction
         super().__init__(src.number, src.sxm)
 
@@ -329,7 +339,10 @@ class SxmChannel_SubtractAverage(SxmChannel):
     @lazy_property
     def data(self):
         data = super().data
-        return data - np.mean(data, axis=0)
+        return np.transpose(
+                np.transpose(data)
+                - np.mean(data, axis=self._direction)
+                )
 
 
 class _SxmChannelPlot:
