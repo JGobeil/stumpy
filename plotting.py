@@ -4,12 +4,12 @@ from matplotlib.figure import Figure
 
 
 heigh_figsize_name = {
-    'Large': 15,
-    'large': 10,
-    'medium': 7,
-    'small': 5,
-    'tiny': 3,
-    'default': 7,
+    'Large': 20,
+    'large': 15,
+    'medium': 10,
+    'small': 6,
+    'tiny': 4,
+    'default': 10,
 }
 
 shape_figsize_name = {
@@ -37,7 +37,7 @@ def get_figsize(size=None, shape=None) -> (float, float):
         return (h, h*s)
 
 
-def create_figure(size=None, shape=None, pyplot=True, dpi=100, **kwargs) -> Figure:
+def create_figure(size=None, shape=None, pyplot=False, dpi=100, **kwargs) -> Figure:
     figsize = get_figsize(size)
 
     if pyplot:

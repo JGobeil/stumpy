@@ -4,8 +4,9 @@ import hashlib
 
 import numpy as np
 import pandas as pd
-from io import StringIO
 from collections import ChainMap
+import fnmatch
+import io
 
 from .helper import get_logger
 from .helper.fileparser import ColonHeaderFile
@@ -15,10 +16,12 @@ from .plotting import create_figure, add_title
 from .plotting import no_grid, no_axis, no_ticks
 from .topo.topo import Topo
 
+from . import sxm_plot_defaults
+
 log = get_logger(__name__)
 
 __author__ = 'Jeremie Gobeil'
-__version__ = '1.3'
+__version__ = '1.7'
 
 
 class SxmFile(ColonHeaderFile):
@@ -45,9 +48,24 @@ class SxmFile(ColonHeaderFile):
         """
         super().__init__(filename, common_path)
 
+        self.plot_defaults = ChainMap(sxm_plot_defaults)
+
         if self.is_ok:
-            self.channels = {i: SxmChannel(i, self) for i
-                             in range(self.number_of_channels)}
+            self.channels = {i: SxmChannel(i, self)
+                             for i in range(self.number_of_channels)}
+            self.channels.update(**{self.channels[i].name: self.channels[i]
+                                    for i in range(self.number_of_channels)})
+
+
+    def set_plot_defaults(self, **kwargs):
+        self.plot_defaults.update(**kwargs)
+
+    def filter_channel_names(self, pattern):
+        return fnmatch.filter(self.channel_names, pattern)
+
+    def filter_channels(self, pattern):
+        names = self.filter_channel_names(pattern)
+        return [self.channels[name] for name in names]
 
     def plot(self, ax=None, channel=None, **kwargs):
         if channel is None:
@@ -268,27 +286,47 @@ class SxmFile(ColonHeaderFile):
     @lazy_property
     def multipass_config(self):
         """ The multipass configuration in pandas.DataFrame format."""
-        return pd.read_table(StringIO(self.header['Multipass-Config']))
+        return pd.read_table(io.StringIO(self.header['Multipass-Config']))
 
 
 # Modification and plotting of sxm channel
 class SxmChannel:
     def __init__(self, channel_number: int, sxm: SxmFile):
-        self.topo = Topo(self)
 
         """ Get the raw numpy array of a channel."""
         self.channel_number = channel_number
         self.channel_name = sxm.channel_names[channel_number]
         self.sxm = sxm
-        self.plot = _SxmChannelPlot(self)
+        self.channel = self
+        self.number = channel_number
+        self.name = sxm.channel_names[channel_number]
+        self.direction = self.name[-3:]
+
+        self.bias = sxm.bias
+        self.current = sxm.current_nA
+        self.scan_speed_nm_s = sxm.scan_speed_nm_s
 
         if sxm.is_multipass:
-            #TODO: get bias/current for multipass
-            self.bias = sxm.bias
-            self.current = sxm.current_A
-        else:
-            self.bias = sxm.bias
-            self.current = sxm.current_A
+            P = int(self.name.split('[')[-1].split(']')[0][1:]) - 1
+            N = P * 2 + (1 if self.direction == 'bwd' else 0)
+            mp = sxm.multipass_config.iloc[N]
+            if mp['Bias_override']:
+                self.bias = mp['Bias_override_value']
+            if mp['Z_Setp_override']:
+                self.current = mp['Z_Setp_override_value'] * 1e9
+            self.scan_speed_nm_s *= mp['Speed_factor']
+
+        self.plot_defaults = sxm.plot_defaults.new_child()
+
+        self.topo = Topo(self)
+
+    def set_plot_defaults(self, **kwargs):
+        self.plot_defaults.update(**kwargs)
+
+    def plot(self, ax=None, **kwargs):
+        params = dict(**self.plot_defaults)
+        params.update(**kwargs)
+        return self.topo.plot(ax=ax, **params)
 
     @lazy_property
     def data(self):
@@ -306,6 +344,19 @@ class SxmChannel:
 
     def subtract_average(self, direction=None):
         return SxmChannel_SubtractAverage(self, direction=direction)
+
+    @property
+    def bias_str(self):
+        b = self.bias
+        return "%.3g mV" % (b * 1000) if b < 1 else "%.3g V" % b
+
+    @property
+    def current_str(self):
+        c = self.current
+        return "%.3g pA" % (c * 1000) if c < 1 else "%.3g nA" % c
+
+    def _repr_html_(self):
+        return self.topo._repr_html_()
 
 
 class SxmChannel_SubtractAverage(SxmChannel):
@@ -345,69 +396,4 @@ class SxmChannel_SubtractAverage(SxmChannel):
                 )
 
 
-class _SxmChannelPlot:
-    def __init__(self, sxmchannel: SxmChannel):
-        self.channel = sxmchannel
-        self.sxm = sxmchannel.sxm
 
-    def __call__(
-            self,
-            ax=None,
-            show_axis=False,
-            size='normal',
-            info='normal',
-            cmap='Blues_r',
-            boxed=True,
-            pyplot=True,
-            dpi=100,  # only when not using pyplot
-            **kwargs
-            ):
-        cnl = self.channel
-        sxm = self.sxm
-
-        if ax is None:
-            figure = create_figure(size=size, pyplot=pyplot, dpi=dpi)
-            ax = figure.add_subplot(111)
-
-        x1, y1 = (0, 0)
-        x2, y2 = np.array([x1, y1]) + sxm.size_nm
-
-        ax.imshow(
-            cnl.data,
-            cmap=cmap,
-            extent=(x1, x2, y1, y2),
-            **kwargs
-        )
-
-        if info == "normal":
-            infostr = "%s\n%s\n%s/%s - %gpA@%s\n%s" % (
-                sxm.path,  # filename
-                sxm.record_datetime,
-                sxm.size_nm_str,  # size
-                sxm.size_px_str,  # pixels
-                sxm.current_nA,  # current,
-                sxm.bias_str,  # bias
-                sxm.name)
-        elif info == "minimal":
-            infostr = "%.3d - %s - %s" % (
-                sxm.serie_number,  # filename
-                sxm.size_nm_str,  # size
-                sxm.bias_str,  # bias
-                )
-        elif info is None:
-            infostr = ""
-        else:
-            infostr = info
-        add_title(ax, infostr)
-
-        if not show_axis:
-            no_axis(ax)
-        if boxed:
-            no_ticks(ax)
-        no_grid(ax)
-        return ax
-
-    def save(self, filename, **kwargs):
-        # TODO: Add auto filename generation
-        self(**kwargs, pyplot=False).get_figure().savefig(filename)
-        return filename

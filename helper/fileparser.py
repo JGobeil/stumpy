@@ -188,6 +188,16 @@ class TabHeaderFile(RegexHeaderParser):
             lof.err(str(e))
             return None
 
+class NanonisDatFile(TabHeaderFile):
+    """ Parser for Nanonis commun dat file (.dat file)."""
+    header_end = '[DATA]'
+    dataoffset = 0
+
+    def __init__(self, filename):
+        """ Open a Nanonis .dat file."""
+        super().__init__(filename)
+
+        self.datetime = datetime.strptime(self.header['Date'], '%d.%m.%Y %H:%M:%S')
 
 class Parse:
     """ Helper function for parsing header."""
