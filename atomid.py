@@ -1,8 +1,9 @@
 import numpy as np
 from collections import namedtuple
 from matplotlib.patches import Circle
+from matplotlib import pyplot as plt
 import pandas as pd
-
+from stumpy.plotting import no_axis, no_ticks, no_grid
 
 class _PtIdConfig(dict):
     class _AtomConfig(list):
@@ -24,7 +25,7 @@ class _PtIdConfig(dict):
     
         def __repr__(self):
             return "\n".join([
-	        "%3d: %s" % (i, s) for i, s in enumerate(self)])
+            "%3d: %s" % (i, s) for i, s in enumerate(self)])
     
     def __init__(self):
         super().__init__()
@@ -50,7 +51,7 @@ class _PtIdConfig(dict):
 # The Average Id Config database
 average_id_config = _PtIdConfig()
 
-# create a new 'type' of atom	
+# create a new 'type' of atom    
 _fe_config = average_id_config.create_config(atom="Fe")
 # we can get it (if exist)
 _fe_config = average_id_config["Fe"]
@@ -61,7 +62,7 @@ _fe_config.add_point(bias=(-0.0005, +0.0005), value=(0.0, 0.05))
 _fe_config.add_point(bias=(+0.0001, +0.0025), value=(0.0, 0.40))
 _fe_config.add_point(bias=(+0.0120, +0.0180), value=(0.6, 1.00))
 
-	
+    
 slope_id_config = _PtIdConfig()
 _fe_config = slope_id_config.create_config(atom="Fe")
 _fe_config.add_point(bias=(-0.0170, -0.0070), value=(0.85, 1.00))
@@ -102,6 +103,31 @@ class _AtomId:
                         fontdict={'color': c, 'weight': "bold", 'size': 15}
                         )
         return ax
+        
+    def plot_results(self):
+        conditions = self.conditions
+        points = [(c[0]+c[1])/2 for c in conditions]
+    
+        figs = []
+        for i, s in enumerate(self.specs):
+            fig, axis = plt.subplots(ncols=3, figsize=(15, 5))
+            s.data.plot(s.keys.V, s.keys.dIdV, ax=axis[0])
+    
+            colors = ['Green' if pt else 'Red' for pt in self.pts_ok[i]]
+    
+            axis[1].scatter([1,2,3,4,5], self.pts_value[i], color=colors)
+            for c in conditions:
+                axis[1].axhline(c[2], linestyle='dashed')
+                axis[1].axhline(c[3], linestyle='dashed')
+    
+            axis[1].set_ylim(-0.5, 1.5)
+    
+            axis[2].text(0.5, 0.5, self.identified[i])
+            no_ticks(axis[2])
+            no_axis(axis[2])
+            
+            figs.append(fig)
+        return figs
 
 
 class AverageId(_AtomId):
@@ -128,6 +154,7 @@ class AverageId(_AtomId):
             self.pts_value.append(pts)
             self.pts_ok.append(pts_ok)
             self.identified.append(np.all(pts_ok))
+        self.identified = np.array(self.identified)
 
 
 class SlopeId(_AtomId):
@@ -159,7 +186,7 @@ class SlopeId(_AtomId):
             self.fits.append(fits)
             self.fits_ok.append(fits_ok)
             self.identified.append(np.all(fits_ok))
-
+        self.identified = np.array(self.identified)
 
 class DoubleId(_AtomId):
     def __init__(self, element, specs):
