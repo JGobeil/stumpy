@@ -7,12 +7,13 @@ import pandas as pd
 from collections import ChainMap
 import fnmatch
 import io
+import re
 
 from .helper import get_logger
 from .helper.fileparser import ColonHeaderFile
 from .helper.fileparser import Parse
 from .helper.lazy import lazy_property
-from .plotting import create_figure, add_title
+from .plotting import create_figure, add_title, get_figsize
 from .plotting import no_grid, no_axis, no_ticks
 from .topo.topo import Topo
 
@@ -22,6 +23,8 @@ log = get_logger(__name__)
 
 __author__ = 'Jeremie Gobeil'
 __version__ = '1.7'
+
+_multipass_re = re.compile(".*\[P([0-9]+)\].*")
 
 
 class SxmFile(ColonHeaderFile):
@@ -36,7 +39,7 @@ class SxmFile(ColonHeaderFile):
     header_end = ':SCANIT_END:'
     dataoffset = 4
 
-    def __init__(self, filename, common_path=None):
+    def __init__(self, filename, common_path=None, sxmplot_config=None):
         """ Open a sxm file.
 
         Parameters
@@ -48,17 +51,21 @@ class SxmFile(ColonHeaderFile):
         """
         super().__init__(filename, common_path)
 
-        self.plot_defaults = ChainMap(sxm_plot_defaults)
+        self.sxmplot_config = ChainMap(sxm_plot_defaults)
+        if sxmplot_config is not None:
+            self.sxmplot_config.update(**sxmplot_config)
 
         if self.is_ok:
             self.channels = {i: SxmChannel(i, self)
                              for i in range(self.number_of_channels)}
             self.channels.update(**{self.channels[i].name: self.channels[i]
                                     for i in range(self.number_of_channels)})
+            self.channel_set = ChannelSet(*[self.channels[i]
+                             for i in range(self.number_of_channels)])
 
 
     def set_plot_defaults(self, **kwargs):
-        self.plot_defaults.update(**kwargs)
+        self.sxmplot_config.update(**kwargs)
 
     def filter_channel_names(self, pattern):
         return fnmatch.filter(self.channel_names, pattern)
@@ -288,6 +295,50 @@ class SxmFile(ColonHeaderFile):
         """ The multipass configuration in pandas.DataFrame format."""
         return pd.read_table(io.StringIO(self.header['Multipass-Config']))
 
+class ChannelSet:
+    def __init__(self, *channels):
+        self._channels = channels
+
+    def filter(self, **kwargs):
+        chn = [c for c in self._channels]
+        for key, value in kwargs.items():
+            print(key, value)
+            if key == 'name':
+                chn = [c for c in chn if fnmatch.fnmatch(c.name, value)]
+        return ChannelSet(*chn)
+
+    def plot(self, ncols=3, **kwargs):
+        params = kwargs.copy()
+
+        N = len(self)
+        nrows = int(np.ceil(N/ncols))
+
+        if 'size' not in params:
+            params['size'] = 'small'
+
+        sc, sr = get_figsize(size=params['size'], shape='square')
+        params['size'] = (sc*ncols, sr*nrows)
+
+        fig = create_figure(**params)
+        axes = fig.subplots(nrows=nrows, ncols=ncols)
+
+        for i, ax in enumerate(axes.flatten()):
+            if i < N:
+                self._channels[i].plot(ax=ax, **params)
+            else:
+                no_axis(ax)
+        return fig, axes
+
+    def __len__(self):
+        return len(self._channels)
+
+    def __repr__(self):
+        return "ChannelSet(%s)" % ', '.join([c.name for c in self._channels])
+
+    def __get__(self, number):
+        return self._channels[number]
+
+
 
 # Modification and plotting of sxm channel
 class SxmChannel:
@@ -307,8 +358,17 @@ class SxmChannel:
         self.scan_speed_nm_s = sxm.scan_speed_nm_s
 
         if sxm.is_multipass:
-            P = int(self.name.split('[')[-1].split(']')[0][1:]) - 1
-            N = P * 2 + (1 if self.direction == 'bwd' else 0)
+            P = _multipass_re.findall(self.name)
+            if len(P) > 1:
+                log.wrn("Found multiple pass in when parsing %s."
+                        "Using P=%s", self.name, P[-1])
+                P = int(P[-1])
+            elif len(P) == 1:
+                P = int(P[-1])
+            else:
+                P = 1
+
+            N = (P-1) * 2 + (1 if self.direction == 'bwd' else 0)
             mp = sxm.multipass_config.iloc[N]
             if mp['Bias_override']:
                 self.bias = mp['Bias_override_value']
@@ -316,7 +376,7 @@ class SxmChannel:
                 self.current = mp['Z_Setp_override_value'] * 1e9
             self.scan_speed_nm_s *= mp['Speed_factor']
 
-        self.plot_defaults = sxm.plot_defaults.new_child()
+        self.plot_defaults = sxm.sxmplot_config.new_child()
 
         self.topo = Topo(self)
 

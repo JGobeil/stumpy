@@ -37,8 +37,8 @@ def get_figsize(size=None, shape=None) -> (float, float):
         return (h, h*s)
 
 
-def create_figure(size=None, shape=None, pyplot=False, dpi=100, **kwargs) -> Figure:
-    figsize = get_figsize(size)
+def create_figure(size=None, shape=None, pyplot=True, dpi=100, **kwargs) -> Figure:
+    figsize = get_figsize(size, shape)
 
     if pyplot:
         figure = plt.figure(figsize=figsize)

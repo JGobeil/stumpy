@@ -1,34 +1,32 @@
 import os
+from glob import glob
 
 import matplotlib.pyplot as plt
 import numpy as np
+from collections import ChainMap
 
 from .plotting import get_figsize
 from .sxmfile import SxmFile
+from .sxmfile import ChannelSet
 from .datfile import BiasSpec
 
-default_sxmplot_config = {
-    'info': 'minimal',
-    'size': 'medium',
-    'cmap': 'hsv',
-}
-
+from . import sxm_plot_defaults
 
 class Opener:
     def __init__(self,
                  datasrc,
                  sxmname,
+                 specsname=None,
                  sxmplot_config=None,
-                 specsname=None
                  ):
 
         self.datasrc = datasrc
         self.sxmname = sxmname
-        self.config_sxmplot = default_sxmplot_config.copy()
-        if sxmplot_config is not None:
-            self.config_sxmplot.update(sxmplot_config)
-
         self.specsname = specsname
+
+        self.sxmplot_config = ChainMap(sxm_plot_defaults)
+        if sxmplot_config is not None:
+            self.sxmplot_config.update(**sxmplot_config)
 
     def plot(self, *numbers, nrows=1, **kwargs):
         """Backward compatibility"""
@@ -37,7 +35,7 @@ class Opener:
     def plot_sxm(self, *numbers, nrows=1, **kwargs):
         sxms = self.getsxm(*numbers)
 
-        cfg = self.config_sxmplot.copy()
+        cfg = dict(**self.sxmplot_config)
         cfg.update(**kwargs)
 
         N = len(numbers)
@@ -63,18 +61,30 @@ class Opener:
     def _getfn_specs(self, nb):
         return os.path.join(self.datasrc, self.specsname + "%.3d" % nb + '.dat')
 
-    def getsxm(self, *numbers):
+    def listsxm(self):
+        print("\n".join(["{:03}: {}".format(i+1, fn)
+            for i, fn in enumerate(glob(self.datasrc + "/*.sxm"))]))
+
+    def getsxm(self, *numbers, channels=None):
         if self.sxmname is None:
             print("Error: Need to specify a sxmname")
             return
 
         sxms = [SxmFile(self._getfn_sxm(nb)) for nb in numbers]
 
+        if channels is not None:
+            chn = []
+            for sxm in sxms:
+                chn.extend(sxm.filter_channels(channels))
+            return ChannelSet(*chn)
+
         N = len(numbers)
         if N == 1:
             return sxms[0]
         else:
             return sxms
+
+
 
     def getspecs(self, *numbers):
         if self.specsname is None:

@@ -6,11 +6,15 @@ import numpy as np
 from collections import ChainMap
 import base64
 import io
+import os
 
 from ..helper.lazy import lazy_property
 from ..plotting import create_figure
 from ..plotting import no_axis, no_grid, no_ticks
 from ..plotting import add_title
+from ..helper import get_logger
+log = get_logger(__name__)
+
 
 from .. import topo_info_formatter
 
@@ -102,9 +106,13 @@ class Topo:
         size = params.pop('size')
         pyplot = params.pop('pyplot')
         dpi = params.pop('dpi')
+        save = params.pop('save')
+        tight = params.pop('tight')
+        savepath = params.pop('savepath')
 
         if ax is None:
-            figure = create_figure(size=size, pyplot=pyplot, dpi=dpi)
+            figure = create_figure(size=size, pyplot=pyplot, dpi=dpi,
+                                   shape='square')
             ax = figure.add_subplot(111)
 
         x1, y1 = (0, 0)
@@ -118,15 +126,18 @@ class Topo:
 
 
         if info is None:
-            infostr = ""
+            fmtstr = ""
         elif info in topo_info_formatter:
-            infostr = topo_info_formatter[info].format(
-                sxm=self.sxm,
-                channel=self.channel,
-                topo=self
-            )
+            fmtstr = topo_info_formatter[info]
         else:
-            infostr = info
+            fmtstr = info
+
+        infostr = fmtstr.format(
+            sxm=self.sxm,
+            channel=self.channel,
+            topo=self
+        )
+
         add_title(ax, infostr)
 
         if not show_axis:
@@ -135,6 +146,25 @@ class Topo:
             no_ticks(ax)
         no_grid(ax)
 
+        if tight:
+            ax.get_figure().tight_layout()
+
+        if save is not False:
+            if save is True:
+                fn = "{sxm.filename}_{channel.name}.png".format(
+                    sxm=self.sxm,
+                    channel=self.channel,
+                    topo=self
+                )
+            else:
+                fn = save
+
+            if savepath:
+                os.makedirs(savepath, exist_ok=True)
+                fn = os.path.join(savepath, fn)
+
+            ax.get_figure().savefig(fn)
+            log.info("Plot saved on %s", fn)
         return ax
 
     def _repr_html_(self):

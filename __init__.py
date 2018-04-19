@@ -7,6 +7,9 @@ sxm_plot_defaults = {
     'pyplot': True,
     'dpi': 100,
     'cmap': 'Blues_r',
+    'save': False,
+    'tight': False,
+    'savepath': '',
 }
 
 topo_info_formatter = {
@@ -17,13 +20,11 @@ topo_info_formatter = {
         "{channel.current_str}@{channel.bias_str}\n"
         "{sxm.record_datetime}"
     ),
-    "minimal": "",
-    #        info == "minimal":
-    #infostr = "%.3d - %s - %s" % (
-    #    sxm.serie_number,  # filename
-    #    sxm.size_nm_str,  # size
-    #    sxm.bias_str,  # bias
-    #)
+    "minimal": (
+        "{sxm.serie_number:03} - {channel.name}\n"
+        "{topo.size_nm_str} - "
+        "{channel.current_str}@{channel.bias_str}"
+        )
 }
 
 # for easy import
