@@ -1,28 +1,73 @@
 import numpy as np
 from collections import namedtuple
 from matplotlib.patches import Circle
-
-PtLimit = namedtuple("PtLimit", ['left', 'right', 'min', 'max'])
-
-
-AverageId_config = {
-        "Fe": [PtLimit(l, r, mi, ma) for l, r, mi, ma in [
-            (-0.0180, -0.0120, 0.6, 1.0),
-            (-0.0025, -0.0010, 0.0, 0.4),
-            (-0.0005, +0.0005, 0.0, 0.05),
-            (+0.0001, +0.0025, 0.0, 0.4),
-            (+0.0120, +0.0180, 0.6, 1.0),
-            ]]
-        }
+import pandas as pd
 
 
-SlopeId_config = {
-        "Fe": [PtLimit(l, r, mi, ma) for l, r, mi, ma in [
-            (-0.0170, -0.0070, 0.85, 1.00),
-            (-0.0025, +0.0025, 0.60, 0.80),
-            (+0.0070, +0.0170, 0.85, 1.00),
-            ]]
-        }
+class _PtIdConfig(dict):
+    class _AtomConfig(list):
+        def __init__(self):
+            super().__init__()
+    
+        def add_point(self, bias, value):
+            """ Add a point to the config.
+    
+            Parameters
+            ----------
+            bias: tuple
+                The (min, max) of the bias of the point.
+            value: tuple
+                The (min, max) associate with this point. How
+                this is use depend on the identification method.
+            """
+            self.append((*bias, *value))
+    
+        def __repr__(self):
+            return "\n".join([
+	        "%3d: %s" % (i, s) for i, s in enumerate(self)])
+    
+    def __init__(self):
+        super().__init__()
+    
+    def create_config(self, atom):
+        """ Create a new atom id config. Return the newly created
+        config. Erase any existing config with this name.
+    
+        Parameters
+        ----------
+        atom: str
+            The name of the config.
+        
+        Returns
+        -------
+        cfg: The newly create config
+        
+        """
+        self[atom] = _PtIdConfig._AtomConfig()
+        return self[atom]
+
+
+# The Average Id Config database
+average_id_config = _PtIdConfig()
+
+# create a new 'type' of atom	
+_fe_config = average_id_config.create_config(atom="Fe")
+# we can get it (if exist)
+_fe_config = average_id_config["Fe"]
+# add a point
+_fe_config.add_point(bias=(-0.0180, -0.0120), value=(0.6, 1.00))
+_fe_config.add_point(bias=(-0.0025, -0.0010), value=(0.0, 0.40))
+_fe_config.add_point(bias=(-0.0005, +0.0005), value=(0.0, 0.05))
+_fe_config.add_point(bias=(+0.0001, +0.0025), value=(0.0, 0.40))
+_fe_config.add_point(bias=(+0.0120, +0.0180), value=(0.6, 1.00))
+
+	
+slope_id_config = _PtIdConfig()
+_fe_config = slope_id_config.create_config(atom="Fe")
+_fe_config.add_point(bias=(-0.0170, -0.0070), value=(0.85, 1.00))
+_fe_config.add_point(bias=(-0.0025, +0.0025), value=(0.60, 0.80))
+_fe_config.add_point(bias=(+0.0070, +0.0170), value=(0.85, 1.00))
+
 
 
 class _AtomId:
@@ -62,10 +107,10 @@ class _AtomId:
 class AverageId(_AtomId):
     def __init__(self, element, specs):
         self.specs = specs
-        self.conditions = AverageId_config[element]
+        self.conditions = average_id_config[element]
 
-        self._mins = np.array([c.min for c in self.conditions])
-        self._maxs = np.array([c.max for c in self.conditions])
+        self._mins = np.array([c[2] for c in self.conditions])
+        self._maxs = np.array([c[3] for c in self.conditions])
 
         self.identified = []
         self.pts_value = []
@@ -74,7 +119,7 @@ class AverageId(_AtomId):
             lockin = s.data[s.keys.LI]
             bias = s.data[s.keys.V]
             pts = np.array([
-                lockin[bias.between(c.left, c.right)].mean()
+                lockin[bias.between(c[0], c[1])].mean()
                 for c in self.conditions])
             pts -= np.min(pts)
             pts /= np.max(pts)
@@ -88,10 +133,10 @@ class AverageId(_AtomId):
 class SlopeId(_AtomId):
     def __init__(self, element, specs):
         self.specs = specs
-        self.conditions = SlopeId_config[element]
+        self.conditions = slope_id_config[element]
 
-        self._mins = np.array([c.min for c in self.conditions])
-        self._maxs = np.array([c.max for c in self.conditions])
+        self._mins = np.array([c[2] for c in self.conditions])
+        self._maxs = np.array([c[3] for c in self.conditions])
 
         self.identified = []
         self.lines = []
@@ -102,7 +147,7 @@ class SlopeId(_AtomId):
             k_I = s.keys.I
 
             bias = s.data[s.keys.V]
-            lines = [s.data[[k_V, k_I]][bias.between(c.left, c.right)]
+            lines = [s.data[[k_V, k_I]][bias.between(c[0], c[1])]
                      for c in self.conditions]
 
             fits = np.array([np.polyfit(line[k_V], line[k_I], deg=1)
