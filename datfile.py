@@ -41,6 +41,7 @@ class BiasSpec(TabHeaderFile):
         'dIdmV_LI': 'dI/dV (nA/mV) (from LI)',
         'dI_LI_ratio': 'dI_vs_LI_ratio',  # 'ratio between numeric and Lock-In
         'mV': 'Bias (mV)',  # 'ratio between numeric and Lock-In
+        'dIdV_tilt_corrected': 'dI/dV (nA/V) tilt corrected',  # tilt corrected
     }
 
     def __init__(self,
@@ -164,6 +165,8 @@ class BiasSpec(TabHeaderFile):
         df.ratio = df[k.dI_LI_ratio][ml[0]:ml[1]].mean()
         df[k.dIdV] = df[k.LI] * df.ratio * 1e9
         df[k.dIdmV] = df[k.dIdV] / 1000
+        fit = np.poly1d(np.polyfit(df[k.V] , df[k.dIdV], 1))(df[k.V])
+        df[k.dIdV_tilt_corrected] =   df[k.dIdV] - fit + np.mean(fit)
 
         return df
 
