@@ -5,6 +5,7 @@ import hashlib
 import numpy as np
 import pandas as pd
 from collections import ChainMap
+from collections import UserList
 import fnmatch
 import io
 import re
@@ -17,7 +18,7 @@ from .plotting import create_figure, add_title, get_figsize
 from .plotting import no_grid, no_axis, no_ticks
 from .topo.topo import Topo
 
-from . import sxm_plot_defaults
+from . import topo_plot_defaults
 
 log = get_logger(__name__)
 
@@ -39,7 +40,7 @@ class SxmFile(ColonHeaderFile):
     header_end = ':SCANIT_END:'
     dataoffset = 4
 
-    def __init__(self, filename, common_path=None, sxmplot_config=None):
+    def __init__(self, filename, sxmplot_config=None):
         """ Open a sxm file.
 
         Parameters
@@ -49,20 +50,18 @@ class SxmFile(ColonHeaderFile):
         use_cache: bool
             if true use memory cache for the channels
         """
-        super().__init__(filename, common_path)
+        super().__init__(filename)
 
-        self.sxmplot_config = ChainMap(sxm_plot_defaults)
+        self.sxmplot_config = ChainMap(topo_plot_defaults)
         if sxmplot_config is not None:
             self.sxmplot_config.update(**sxmplot_config)
 
         if self.is_ok:
-            self.channels = {i: SxmChannel(i, self)
-                             for i in range(self.number_of_channels)}
-            self.channels.update(**{self.channels[i].name: self.channels[i]
-                                    for i in range(self.number_of_channels)})
-            self.channel_set = ChannelSet(*[self.channels[i]
-                             for i in range(self.number_of_channels)])
-
+            #self.channels = {}
+            #self.channels.update(**{self.channels[i].name: self.channels[i]
+            #                        for i in range(self.number_of_channels)})
+            self.channels = ChannelSet([SxmChannel(i, self) for i in
+                                        range(self.number_of_channels)])
 
     def set_plot_defaults(self, **kwargs):
         self.sxmplot_config.update(**kwargs)
@@ -128,7 +127,7 @@ class SxmFile(ColonHeaderFile):
             'serie_name': self.serie_name,
             'serie_number': self.serie_number,
             'Current (nA)': self.current_nA,
-            'Z (m)': self.Z_m,
+            #'Z (m)': self.Z_m,
         }
 
     @lazy_property
@@ -153,6 +152,11 @@ class SxmFile(ColonHeaderFile):
     def record_datetime(self):
         """ The Datetime object corresponding the the record time"""
         return Parse.datetime(self.header['REC_DATE'], self.header['REC_TIME'])
+
+    @lazy_property
+    def datetime(self):
+        """ The Datetime object corresponding the the record time"""
+        return self.record_datetime
 
     @lazy_property
     def acquisition_time_s(self):
@@ -272,10 +276,10 @@ class SxmFile(ColonHeaderFile):
         """ Scanning current in nA"""
         return float(self.z_controller[0]['Setpoint'].split()[0])
 
-    @lazy_property
-    def Z_m(self):
-        """ Scanning current in nA"""
-        return float(self.header['Z-Controller>Z (m)'])
+    #@lazy_property
+    #def Z_m(self):
+    #    """ Scanning current in nA"""
+    #    return float(self.header['Z-Controller>Z (m)'])
 
     @lazy_property
     def shape(self):
@@ -295,17 +299,18 @@ class SxmFile(ColonHeaderFile):
         """ The multipass configuration in pandas.DataFrame format."""
         return pd.read_table(io.StringIO(self.header['Multipass-Config']))
 
-class ChannelSet:
-    def __init__(self, *channels):
-        self._channels = channels
+class ChannelSet(UserList):
+    def __init__(self, channels=[]):
+        super().__init__()
+        self._name2number = {}
+        self.add(*channels)
 
     def filter(self, **kwargs):
-        chn = [c for c in self._channels]
+        chn = [c for c in self]
         for key, value in kwargs.items():
-            print(key, value)
             if key == 'name':
                 chn = [c for c in chn if fnmatch.fnmatch(c.name, value)]
-        return ChannelSet(*chn)
+        return ChannelSet(chn)
 
     def plot(self, ncols=3, **kwargs):
         params = kwargs.copy()
@@ -324,19 +329,26 @@ class ChannelSet:
 
         for i, ax in enumerate(axes.flatten()):
             if i < N:
-                self._channels[i].plot(ax=ax, **params)
+                self[i].plot(ax=ax, **params)
             else:
                 no_axis(ax)
         return fig, axes
 
-    def __len__(self):
-        return len(self._channels)
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return self.data[self._name2number[key]]
+        else:
+            return self.data[key]
 
     def __repr__(self):
-        return "ChannelSet(%s)" % ', '.join([c.name for c in self._channels])
+        return "ChannelSet(%s)" % ', '.join([c.name for c in self])
 
-    def __get__(self, number):
-        return self._channels[number]
+    def add(self, *channels):
+        i = len(self)
+        self.extend(channels)
+        for j, c in enumerate(channels):
+            self._name2number[c.name] = i+j
+
 
 
 
@@ -390,17 +402,19 @@ class SxmChannel:
 
     @lazy_property
     def data(self):
+        """ Numpy array of the data. For indice is x the second is y
+        so data[0, 1] give the pixels above the bottom left corner. """
         sxm = self.sxm
         with sxm.file as f:
             f.seek(sxm.datastart + self.channel_number * sxm.chunk_size)
             raw = f.read(sxm.chunk_size)
             data = np.frombuffer(raw, dtype='>f4').reshape(*sxm.shape)
 
-        if sxm.direction == 'up':
+        if sxm.direction == 'down':
             data = np.flipud(data)
         if self.channel_number & 0x1:
             data = np.fliplr(data)
-        return data
+        return data.T
 
     def subtract_average(self, direction=None):
         return SxmChannel_SubtractAverage(self, direction=direction)
@@ -417,6 +431,24 @@ class SxmChannel:
 
     def _repr_html_(self):
         return self.topo._repr_html_()
+
+    @property
+    def size_nm(self):
+        return self.sxm.size_nm
+
+    @property
+    def pos_nm(self):
+        return self.sxm.pos_nm
+
+    @property
+    def angle(self):
+        return self.sxm.angle
+
+    @property
+    def size_px(self):
+        """ The size in pixels as numpy.array"""
+        return np.array(self.data.shape)
+
 
 
 class SxmChannel_SubtractAverage(SxmChannel):

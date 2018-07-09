@@ -3,6 +3,8 @@
 import os.path
 from collections import Counter
 from types import SimpleNamespace
+import io
+import base64
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,15 +13,52 @@ from matplotlib.style import context as mpl_context
 from .helper import get_logger
 from .helper import lazy_property
 from .helper.fileparser import TabHeaderFile
+from .helper.fileparser import Parse
 
 from .plotting import get_figsize
+from .plotting import create_figure
 
 log = get_logger(__name__)
 
-
-class BiasSpec(TabHeaderFile):
+class GenericDatFile(TabHeaderFile):
     header_end = '[DATA]'
     dataoffset = 0
+
+    @lazy_property
+    def xyz_nm(self):
+        return np.array((self.x_nm, self.y_nm, self.z_nm))
+
+    # alias
+    @lazy_property
+    def pos_nm(self):
+        return self.xyz_nm
+
+    @lazy_property
+    def x_nm(self):
+        return float(self.header['X (m)'])*1e9
+
+    @lazy_property
+    def y_nm(self):
+        return float(self.header['Y (m)'])*1e9
+
+    @lazy_property
+    def xy_nm(self):
+        return np.array((self.x_nm, self.y_nm))
+
+    @lazy_property
+    def z_nm(self):
+        return float(self.header['Z (m)'])*1e9
+
+    @lazy_property
+    def datetime(self):
+        return Parse.datetime(self.header['Date'])
+
+    @lazy_property
+    def number(self):
+        return int(self.filename[-7:-4])
+
+
+class BiasSpec(GenericDatFile):
 
     # columns name to search for in file. Go through a list until a match.
     channel_names_search_list = {
@@ -44,13 +83,13 @@ class BiasSpec(TabHeaderFile):
     }
 
     def __init__(self,
-                 filename, common_path=None,
+                 filename,
                  LI='LIY',
                  noise_limits=(0.25, 0.75),
-                 LI_sensitivy=50,
+                 LI_sens=50,
                  ):
         # read file and parse header
-        super().__init__(filename, common_path)
+        super().__init__(filename)
 
         # use an attribute so it can be changed on specific file if needed
         self._cnsl = BiasSpec.channel_names_search_list
@@ -59,17 +98,25 @@ class BiasSpec(TabHeaderFile):
         # use to cut the current data to limit the noise at high current
         self.noise_limits = np.array(noise_limits)
 
-        self.LI_sensitivity = LI_sensitivy
+        self.LI_sensitivity = LI_sens
 
         if LI not in ['LIY', 'LIX']:
-            log.wrn("Lock-In channes should be 'LIX' or 'LIY'")
-        self.keys = self.infer_keys(LI=LI)
+            self.is_ok = False
+            #log.wrn("Lock-In channes should be 'LIX' or 'LIY'")
 
+        if 'Bias Spectroscopy>Channels' not in self.header:
+            # Not a Bias Spec file
+            self.is_ok = False
+            #log.wrn("%s is not as BiasSpec file.", self.filename)
+            return
+
+        self.keys = self.infer_keys(LI=LI)
         log.dbg("Opened: '%s' as BiasSpec (LI: %s; Bias: %s)",
                 self.filename, self.keys.LI, self.keys.V)
 
     def plot(self, title=None, ax=None, save=False, size=None,
              x=None, y=None, xlabel=None, ylabel=None,
+             pyplot=True, dpi=100,
              **kwargs,):
         if 'figsize' not in kwargs and ax is None:
             kwargs['figsize'] = get_figsize(size)
@@ -83,10 +130,15 @@ class BiasSpec(TabHeaderFile):
         if ylabel is None:
             ylabel = 'dI/dV [nA/mV]'
 
+        if ax is None:
+            figure = create_figure(size=size, pyplot=pyplot, dpi=dpi,
+                                   shape='golden')
+            ax = figure.add_subplot(111)
+
         ax = self.data.plot(x=x, y=y, ax=ax, **kwargs)
 
         if title is not None:
-            ax.get_figure().set_title(title)
+            ax.set_title(title)
 
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
@@ -150,7 +202,7 @@ class BiasSpec(TabHeaderFile):
         df = super().get_data().sort_values(k.V)
 
         N = len(df[k.V])
-        dV = (df[k.V].max() - df[k.V].min()) / N
+        dV = (df[k.V].max() - df[k.V].min()) / (N-1)
 
         # limits noise issues
 
@@ -166,6 +218,41 @@ class BiasSpec(TabHeaderFile):
         df[k.dIdmV] = df[k.dIdV] / 1000
 
         return df
+
+    def iplot(self):
+        import ipywidgets as w
+        from IPython.display import display
+
+        xselect = w.Select(
+            description='x',
+            options=self.keys.__dict__.values(),
+            value=self.keys.mV,
+        )
+        yselect = w.Select(
+            description='y',
+            options=self.keys.__dict__.values(),
+            value=self.keys.dIdmV,
+        )
+
+        html = w.HTML()
+
+        def change(*args):
+            html.value = "".join([
+            "<img style='display:block;width:600px;'",  # width:100px;height:100px;'
+            "src='data:image/png;base64, ",
+            self.get_base64_plot(
+                x=xselect.value,
+                y=yselect.value,
+            ),
+            "' />",
+            ])
+
+        xselect.observe(change, 'value')
+        yselect.observe(change, 'value')
+
+        change()
+        display(w.VBox([xselect, yselect, html]))
+
 
     def __repr__(self):
         return "%s (%gV .. %gV)" % (
@@ -195,15 +282,10 @@ class BiasSpec(TabHeaderFile):
     def pixels(self):
         return int(self.header['Bias Spectroscopy>Num Pixel'])
 
-    @lazy_property
-    def xyz_nm(self):
-        return np.array((
-            float(self.header['X (m)']) * 1e9,
-            float(self.header['Y (m)']) * 1e9,
-            float(self.header['Z (m)']) * 1e9
-        ))
+    def get_base64_plot(self, **kwargs):
+        ax = self.plot(pyplot=False, **kwargs)
+        bts = io.BytesIO()
+        ax.get_figure().savefig(bts, format='png')
+        bts.seek(0)
+        return base64.b64encode(bts.getvalue()).decode()
 
-
-class GenericDatFile(TabHeaderFile):
-    header_end = '[DATA]'
-    dataoffset = 2

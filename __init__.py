@@ -1,5 +1,5 @@
 
-sxm_plot_defaults = {
+topo_plot_defaults = {
     'info': 'normal',
     'show_axis': False,
     'boxed': True,
@@ -8,13 +8,15 @@ sxm_plot_defaults = {
     'dpi': 100,
     'cmap': 'Blues_r',
     'save': False,
-    'tight': False,
+    'tight': True,
     'savepath': '',
+    'fontdict_title': None,
+    'absolute_pos': False,
 }
 
 topo_info_formatter = {
     'normal': (
-        "{sxm.name} - {channel.name}\n"
+        "{sxm.name} - {channel.name} - #{channel.number}\n"
         "{topo.size_nm_str}/{topo.size_px_str}"
         " - "
         "{channel.current_str}@{channel.bias_str}\n"
@@ -26,6 +28,8 @@ topo_info_formatter = {
         "{channel.current_str}@{channel.bias_str}"
         )
 }
+
+search_path = []
 
 # for easy import
 # .sxm file

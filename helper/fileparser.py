@@ -1,6 +1,10 @@
 """ Helper functions and class to open and parse files. """
 
-import os.path as path
+import os
+from os.path import isfile
+from os.path import join as pjoin
+from os.path import split as psplit
+from os.path import splitext as psplitext
 import re
 from datetime import datetime
 
@@ -9,6 +13,9 @@ import pandas as pd
 
 from ..helper import get_logger
 from ..helper import lazy_property
+from ..helper import ossep
+
+from .. import search_path
 
 log = get_logger(name=__name__)
 
@@ -28,7 +35,7 @@ class FileParserBase:
         The file had been read.
     """
 
-    def __init__(self, filename: str, common_path=None):
+    def __init__(self, filename: str):
         """ Initialize basic fileparser parameters
 
         Parameters
@@ -36,19 +43,30 @@ class FileParserBase:
         filename: str
             The filename
         """
-        if common_path is None:
-            self.path = filename
-            self.filename = filename
-        else:
-            self.path = path.join(common_path, filename)
-            self.filename = filename
+
+        self.path = filename
+        if not isfile(self.path):
+            for path in search_path:
+                path = ossep(pjoin(path, filename))
+                if isfile(path):
+                    self.path = path
+                    break
+
+        self.filename = psplit(filename)[-1]
         self.is_ok = False
+
+        if not isfile(self.path):
+            log.err("Can not open file %s", self.path)
 
         self.header = self.get_header()
 
     def get_header(self):
         self.is_ok = True
         return dict()
+
+    @property
+    def fn_noext(self):
+        return psplitext(self.filename)[0]
 
     @property
     def file(self):
@@ -185,7 +203,7 @@ class TabHeaderFile(RegexHeaderParser):
                 return pd.read_table(f, sep='\t', )
         except Exception as e:
             self.is_ok = False
-            lof.err(str(e))
+            log.err(str(e))
             return None
 
 class NanonisDatFile(TabHeaderFile):
@@ -203,13 +221,18 @@ class Parse:
     """ Helper function for parsing header."""
 
     @staticmethod
-    def datetime(date, time):
-        """ Convert a date and time strings to Python start_time
+    def datetime(date, time=None):
+        """ Convert a date and time strings to Python
 
         Parameters
         ----------
-        date: str
-            A string in the format day.month.year. Ex.: '23.02.2017'
+        date or date_time: str
+            A string in the format 'day.month.year', or if time is None
+            a string in the format 'day.month.year hour:minute:second'.
+            Ex.: '23.02.2017' or '23.02.2017 23:02:12.32'
+        ))
+
+
         time: str
             A string in the format hour:minute:second. Ex.: '23:02:12.32'
 
@@ -217,7 +240,10 @@ class Parse:
         ------
         The corresponding Datetime
         """
-        return datetime.strptime("%s %s" % (date, time), '%d.%m.%Y %H:%M:%S')
+        if time is None:
+            return datetime.strptime(date, '%d.%m.%Y %H:%M:%S')
+        else:
+            return datetime.strptime("%s %s" % (date, time), '%d.%m.%Y %H:%M:%S')
 
     @staticmethod
     def table(s, *types, splitter='\t'):

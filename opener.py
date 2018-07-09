@@ -10,7 +10,7 @@ from .sxmfile import SxmFile
 from .sxmfile import ChannelSet
 from .datfile import BiasSpec
 
-from . import sxm_plot_defaults
+from . import topo_plot_defaults
 
 class Opener:
     def __init__(self,
@@ -24,9 +24,10 @@ class Opener:
         self.sxmname = sxmname
         self.specsname = specsname
 
-        self.sxmplot_config = ChainMap(sxm_plot_defaults)
+        self.sxmplot_config = ChainMap(topo_plot_defaults)
         if sxmplot_config is not None:
             self.sxmplot_config.update(**sxmplot_config)
+
 
     def plot(self, *numbers, nrows=1, **kwargs):
         """Backward compatibility"""
@@ -98,4 +99,6 @@ class Opener:
             return specs[0]
         else:
             return specs
+
+
 
