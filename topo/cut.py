@@ -9,8 +9,6 @@ class TopoCutted(Topo):
         self.limits = [x1, x2, y1, y2]
         self.size_nm = np.array((x2 - x1, y2 - y1))
 
-        print(x1, x2, y1, y2)
-
         px1, px2 = np.array(np.array((x1, x2))*src.size_px[0]/src.size_nm[0],
                             dtype=int)
 

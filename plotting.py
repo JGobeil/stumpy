@@ -64,6 +64,8 @@ def no_ticks(ax):
 
 def no_axis(ax):
     ax.axis('off')
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
 
 
 def no_grid(ax):

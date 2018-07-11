@@ -29,10 +29,10 @@ class Topo:
         self.src = src
         self.sxm = src.sxm
         self.channel = src.channel
-        self.pos_nm = src.pos_nm
-        self.size_nm = src.size_nm
+        self.pos_nm = src.pos_nm.copy()
+        self.size_nm = src.size_nm.copy()
         self.angle = src.angle
-        self.name = src.name
+        self.name = str(src.name)
         self.plot_defaults = self.src.plot_defaults.new_child()
 
     def set_plot_defaults(self, **kwargs):
@@ -40,11 +40,11 @@ class Topo:
 
     @property
     def bl_corner(self):
-        return self.pos_nm - self.size_nm/2
+        return self.pos_nm - self.size_nm/2 @ self.inv_rotation_matrix
 
     @property
     def tr_corner(self):
-        return self.pos_nm + self.size_nm/2
+        return self.pos_nm + self.size_nm/2 @ self.inv_rotation_matrix
 
     @property
     def data(self):
@@ -74,6 +74,13 @@ class Topo:
         return np.array(((c, -s), (s, c)))
 
     @lazy_property
+    def inv_rotation_matrix(self):
+        """ Rotation matrix using the angle of the scan."""
+        theta = -np.radians(self.angle)
+        c, s = np.cos(theta), np.sin(theta)
+        return np.array(((c, -s), (s, c)))
+
+    @lazy_property
     def xy(self):
         """ Position in real space of the pixels. """
         xsize_nm, ysize_nm = self.size_nm
@@ -89,12 +96,12 @@ class Topo:
     def map_topo2plot(self, pos):
         "Conversion from topo space to plot space"
         p = np.asarray(pos)
-        return (p - self.pos_nm) @ self.rotation_matrix.T + self.size_nm/2
+        return (p - self.pos_nm) @ (self.rotation_matrix) + self.size_nm/2
 
     def map_plot2topo(self, pos):
         "Conversion from plot space to topo space"
         p = np.asarray(pos)
-        return (p - self.size_nm/2) @ self.rotation_matrix + self.pos_nm
+        return (p - self.size_nm/2) @ self.inv_rotation_matrix + self.pos_nm
 
     def abs2topo(self, abspos):
         return (abspos - self.pos_nm) @ self.rotation_matrix.T + self.size_nm/2
@@ -266,20 +273,18 @@ class InterpolatedTopo(Topo):
 
     @property
     def cuts(self):
-        poff = self.pos_offset
-        size = self.size_nm
-        c0, c2 = (self.src.size_nm - size) / 2 + poff
-        c1, c3 = (self.src.size_nm + size) / 2 + poff
-        return (c0, c1, c2, c3)
+        x0, y0 = self.src.map_topo2plot(self.bl_corner)
+        x1, y1 = self.src.map_topo2plot(self.tr_corner)
+
+        return (x0, x1, y0, y1)
 
     @cuts.setter
     def cuts(self, cuts):
-        self.size_nm = np.asarray((cuts[1] - cuts[0], cuts[3] - cuts[2]))
+        x0, x1, y0, y1 = cuts
+        self.size_nm = np.asarray((x1 - x0, y1 - y0))
 
-        c1 = self.src.map_plot2topo((cuts[0], cuts[2]))
-        c2 = self.src.map_plot2topo((cuts[1], cuts[3]))
-
-        self.pos_nm = (c1 + c2)/2
+        self.pos_nm = (self.src.map_plot2topo((x0, y0)) +
+                       self.src.map_plot2topo((x1, y1))) / 2
 
     @property
     def pixels(self):
@@ -292,12 +297,14 @@ class InterpolatedTopo(Topo):
 
 
 class CorrectTipChangeTopo(Topo):
-    def __init__(self, src, toll=None):
+    def __init__(self, src, toll=None, corr_factor=1):
         super().__init__(src)
         if toll is not None:
             self.toll = toll
         else:
             self.toll = 1.5e-11
+
+        self.corr_factor = corr_factor
 
     @property
     def lines_diff(self):
@@ -315,7 +322,7 @@ class CorrectTipChangeTopo(Topo):
         diff = self.lines_diff
 
         diff[np.abs(diff) < self.toll] = 0
-        cumdiff = np.cumsum(np.insert(diff, 0, 0))
+        cumdiff = np.cumsum(np.insert(diff*self.corr_factor, 0, 0))
 
         return (data.T - cumdiff)
 
@@ -326,4 +333,17 @@ class CorrectTipChangeTopo(Topo):
         ax.plot(np.abs(self.lines_diff))
         ax.axhline(self.toll, color='red')
         return ax
+
+
+class VerticalConcatenatedTopo(Topo):
+    def __init__(self, src):
+        """ Initialize a topo. """
+        super().__init__(src[0])
+        self.pos_nm = np.sum([s.pos_nm for s in src], axis=0) / 2
+        self.size_nm[1] = np.sum([s.size_nm[1] for s in src])
+        self.src_list = src
+
+    @property
+    def data(self):
+        return np.concatenate([s.data for s in reversed(self.src_list)], axis=1)
 
