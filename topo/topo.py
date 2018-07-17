@@ -16,6 +16,7 @@ from ..plotting import add_title
 from ..helper import get_logger
 from ..helper.image import writetopo
 from ..helper.image import encodetopo
+from ..helper.image import normdata
 log = get_logger(__name__)
 
 from .. import topo_info_formatter
@@ -33,6 +34,7 @@ class Topo:
         self.size_nm = src.size_nm.copy()
         self.angle = src.angle
         self.name = str(src.name)
+        self.minmax = None
         self.plot_defaults = self.src.plot_defaults.new_child()
 
     def set_plot_defaults(self, **kwargs):
@@ -154,9 +156,12 @@ class Topo:
             x1, y1 = (0, 0)
             x2, y2 = self.size_nm
 
+        mm = self.minmax
         ax.imshow(
             self.imdata,
             extent=(x1, x2, y1, y2),
+            vmin=None if mm is None else mm[0],
+            vmax=None if mm is None else mm[1],
             **params
         )
 
@@ -219,13 +224,15 @@ class Topo:
     def get_base64_image(self, cmap=None):
         if cmap is None:
             cmap = self.plot_defaults['cmap']
-        bts = encodetopo(data=self.imdata, cmap=cmap)
+        bts = encodetopo(data=self.imdata, cmap=cmap,
+                         minmax=self.minmax)
         return base64.b64encode(bts).decode()
 
     def write(self, filename, cmap=None):
         if cmap is None:
             cmap = self.plot_defaults['cmap']
-        writetopo(self.imdata, filename, cmap)
+        writetopo(self.imdata, filename, cmap=cmap,
+                  minmax=self.minmax)
 
     def is_in(self, xy):
         p = self.map_topo2plot(xy)
@@ -346,4 +353,32 @@ class VerticalConcatenatedTopo(Topo):
     @property
     def data(self):
         return np.concatenate([s.data for s in reversed(self.src_list)], axis=1)
+
+
+class DriftCorrectedTopo(Topo):
+    def __init__(self, src, order=1):
+        super().__init__(src)
+        self.order = order
+
+    @property
+    def data(self):
+        data, means, fits, lines = self.get_corrected_data()
+        return data
+
+    def get_corrected_data(self):
+        data = super().data
+        means = np.mean(data, axis=0)
+        lines = np.arange(means.size)
+        fits = np.poly1d(np.polyfit(lines, means, self.order))(lines)
+        corrdata = data - fits
+        return corrdata, means, fits, lines
+
+    def plot_fit(self, ax=None, size='small', pyplot=True):
+        if ax is None:
+            figure = create_figure(size=size, pyplot=pyplot)
+            ax = figure.add_subplot(111)
+        data, means, fits, lines = self.get_corrected_data()
+        ax.plot(lines, means)
+        ax.plot(lines, fits)
+        return ax
 
