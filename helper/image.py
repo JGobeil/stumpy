@@ -11,13 +11,22 @@ def normdata(data, minmax=None):
     else:
         datamin = data.min()
         datamax = data.max()
+<<<<<<< HEAD
 
     data -= datamin
+=======
+        
+    data -= datamin 
+>>>>>>> origin/v2.0
     data *= (1/(datamax - datamin))
     return data
 
 def writetopo_cv2(data, filename, cmap, minmax=None):
+<<<<<<< HEAD
     """ Save a topo2 image using opencv and matplotlib colormap."""
+=======
+    """ Save a topo image using opencv and matplotlib colormap."""
+>>>>>>> origin/v2.0
     cm = mplcm.get_cmap(cmap)
 
     data = normdata(data, minmax)
@@ -27,7 +36,11 @@ def writetopo_cv2(data, filename, cmap, minmax=None):
     )
 
 def encodetopo_cv2(data, cmap, minmax=None):
+<<<<<<< HEAD
     """ Save a topo2 image using opencv and matplotlib colormap."""
+=======
+    """ Save a topo image using opencv and matplotlib colormap."""
+>>>>>>> origin/v2.0
     cm = mplcm.get_cmap(cmap)
 
     data = normdata(data, minmax)
@@ -39,7 +52,11 @@ def encodetopo_cv2(data, cmap, minmax=None):
 
 
 def writetopo_imageio(data, filename, cmap, minmax=None):
+<<<<<<< HEAD
     """ Save a topo2 image using imageio and matplotlib colormap."""
+=======
+    """ Save a topo image using imageio and matplotlib colormap."""
+>>>>>>> origin/v2.0
     cm = mplcm.get_cmap(cmap)
 
     data = normdata(data, minmax)

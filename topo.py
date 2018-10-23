@@ -317,8 +317,6 @@ class InterpolatedTopo(Topo):
         self._pixels = np.max(N)
 
 
-
-
 class TopoSet(UserList):
     def __init__(self, topos=[]):
         toadd = []
@@ -407,4 +405,3 @@ class TopoSet(UserList):
         fig.savefig(bts, format='png')
         bts.seek(0)
         return base64.b64encode(bts.getvalue()).decode()
-
