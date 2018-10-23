@@ -1,14 +1,22 @@
 """ Helper functions and class to open and parse files. """
 
-import os.path as path
+import os
+from os.path import isfile
+from os.path import join as pjoin
+from os.path import split as psplit
+from os.path import splitext as psplitext
 import re
 from datetime import datetime
+from glob import glob
 
 import numpy as np
 import pandas as pd
 
 from ..helper import get_logger
 from ..helper import lazy_property
+from ..helper import ossep
+
+from .. import search_path
 
 log = get_logger(name=__name__)
 
@@ -28,7 +36,7 @@ class FileParserBase:
         The file had been read.
     """
 
-    def __init__(self, filename: str, common_path=None):
+    def __init__(self, filename: str):
         """ Initialize basic fileparser parameters
 
         Parameters
@@ -36,22 +44,41 @@ class FileParserBase:
         filename: str
             The filename
         """
-        if common_path is None:
-            self.path = filename
-            self.filename = filename
-        else:
-            self.path = path.join(common_path, filename)
-            self.filename = filename
+
+        self.path = filename
+        if not isfile(self.path):
+            for spath in search_path:
+                path = ossep(pjoin(spath, filename))
+                if isfile(path):
+                    self.path = path
+                    break
+                elif filename[0] is not '*':
+                    gl = glob(ossep(pjoin(spath, "*" + filename)))
+                    if len(gl) == 1:
+                        self.path = gl[0]
+                        break
+
+
+        self.filename = psplit(self.path)[-1]
         self.is_ok = False
 
-        self.header = self.get_header()
+        if not isfile(self.path):
+            log.err("Can not open file %s", self.path)
+        else:
+            self.header = self.get_header()
 
     def get_header(self):
         self.is_ok = True
         return dict()
 
     @property
+    def fn_noext(self):
+        """ Filename without extension"""
+        return psplitext(self.filename)[0]
+
+    @property
     def file(self):
+        """ Get the opened file """
         return open(self.path, 'rb')
 
 
@@ -185,21 +212,36 @@ class TabHeaderFile(RegexHeaderParser):
                 return pd.read_table(f, sep='\t', )
         except Exception as e:
             self.is_ok = False
-            lof.err(str(e))
+            log.err(str(e))
             return None
 
+class NanonisDatFile(TabHeaderFile):
+    """ Parser for Nanonis commun dat file (.dat file)."""
+    header_end = '[DATA]'
+    dataoffset = 0
+
+    def __init__(self, filename):
+        """ Open a Nanonis .dat file."""
+        super().__init__(filename)
+
+        self.datetime = datetime.strptime(self.header['Date'], '%d.%m.%Y %H:%M:%S')
 
 class Parse:
     """ Helper function for parsing header."""
 
     @staticmethod
-    def datetime(date, time):
-        """ Convert a date and time strings to Python start_time
+    def datetime(date, time=None):
+        """ Convert a date and time strings to Python
 
         Parameters
         ----------
-        date: str
-            A string in the format day.month.year. Ex.: '23.02.2017'
+        date or date_time: str
+            A string in the format 'day.month.year', or if time is None
+            a string in the format 'day.month.year hour:minute:second'.
+            Ex.: '23.02.2017' or '23.02.2017 23:02:12.32'
+        ))
+
+
         time: str
             A string in the format hour:minute:second. Ex.: '23:02:12.32'
 
@@ -207,7 +249,10 @@ class Parse:
         ------
         The corresponding Datetime
         """
-        return datetime.strptime("%s %s" % (date, time), '%d.%m.%Y %H:%M:%S')
+        if time is None:
+            return datetime.strptime(date, '%d.%m.%Y %H:%M:%S')
+        else:
+            return datetime.strptime("%s %s" % (date, time), '%d.%m.%Y %H:%M:%S')
 
     @staticmethod
     def table(s, *types, splitter='\t'):
