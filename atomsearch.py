@@ -1,8 +1,8 @@
-""" Module to find atoms coordinate in a topo scan. """
+""" Module to find atoms coordinate in a topo2 scan. """
 
 #from types import SimpleNamespace
 #import pandas as pd
-from .topo import Topo
+from .topo2 import Topo
 from .lazy import lazy_property
 
 

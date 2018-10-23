@@ -77,6 +77,7 @@ class BiasSpec(GenericDatFile):
         'NdIdV': 'NdI/dV (V)',  # numerical dI/dV (from current)
         'dIdV': 'dI/dV (nA/V)',  # 'normalized' dI/dV
         'dIdmV': 'dI/dV (nA/mV)',  # 'normalized' dI/dV
+        'dIdV_LI': 'dI/dV (nA/V) (from LI)',
         'dIdmV_LI': 'dI/dV (nA/mV) (from LI)',
         'dI_LI_ratio': 'dI_vs_LI_ratio',  # 'ratio between numeric and Lock-In
         'mV': 'Bias (mV)',  # 'ratio between numeric and Lock-In
@@ -86,7 +87,10 @@ class BiasSpec(GenericDatFile):
                  filename,
                  LI='LIY',
                  noise_limits=(0.25, 0.75),
-                 LI_sens=50,
+                 LI_sens=50e-3,
+                 LI_amplitude=0.2,
+                 divider=100,
+                 constant_current=False,
                  ):
         # read file and parse header
         super().__init__(filename)
@@ -99,6 +103,9 @@ class BiasSpec(GenericDatFile):
         self.noise_limits = np.array(noise_limits)
 
         self.LI_sensitivity = LI_sens
+        self.divider = divider
+        self.LI_amplitude = LI_amplitude
+        self.constant_current = constant_current
 
         if LI not in ['LIY', 'LIX']:
             self.is_ok = False
@@ -210,14 +217,30 @@ class BiasSpec(GenericDatFile):
 
 
         df[k.mV] = df[k.V]*1000
-        df[k.dIdmV_LI] = df[k.LI]*self.LI_sensitivity / 10
-        df[k.NdIdV] = np.gradient(df[k.I], dV, edge_order=2)
-        df[k.dI_LI_ratio] = df[k.NdIdV] / df[k.LI]
-        df.ratio = df[k.dI_LI_ratio][ml[0]:ml[1]].mean()
-        df[k.dIdV] = df[k.LI] * df.ratio * 1e9
+        df[k.NdIdV] = np.gradient(1e9*df[k.I], dV, edge_order=2)
+        
+        self.ratio_lock_in = self.LI_sensitivity / (2*self.LI_amplitude)
+        self.ratio_numeric = abs((df[k.NdIdV] / df[k.LI])[ml[0]:ml[1]].mean())
+        
+        df[k.dIdV] = df[k.LI] * self.ratio_numeric
         df[k.dIdmV] = df[k.dIdV] / 1000
-
+        
+        df[k.dIdV_LI] = df[k.LI] * self.ratio_lock_in 
+        df[k.dIdmV_LI] = df[k.dIdV_LI] / 1000
+        
         return df
+    
+    @property
+    def ratio_info_str(self):
+        self.data
+        return "%g / %g (num / li) ;  %g / %g (li / est)" % (
+        self.ratio_numeric, self.ratio_lock_in, 
+        self.LI_sensitivity, self.LI_sensitivity_estimation)
+    
+    @property
+    def LI_sensitivity_estimation(self):
+        self.data
+        return self.ratio_numeric*2*self.LI_amplitude 
 
     def iplot(self):
         import ipywidgets as w

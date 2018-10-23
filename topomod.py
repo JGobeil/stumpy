@@ -1,9 +1,7 @@
 import numpy as np
 from scipy import ndimage
-from functools import wraps
 
 from .topo import Topo
-from ..helper import lazy_property
 
 
 class _TopoScipyNdImage(Topo):
@@ -137,6 +135,91 @@ class Binary(Topo):
         return data
 
 
+class CorrectTipChange(Topo):
+    def __init__(self, src, toll=None, corr_factor=1):
+        super().__init__(src)
+        if toll is not None:
+            self.toll = toll
+        else:
+            self.toll = 1.5e-11
+
+        self.corr_factor = corr_factor
+
+    @property
+    def lines_diff(self):
+        data = super().data.T
+        N = data.shape[0] - 1
+        diff = np.empty(N)
+        for i in range(0, N):
+            diff[i] = np.mean(data[i + 1, :] - data[i, :])
+        return diff
+
+    @property
+    def data(self):
+        data = super().data.T
+
+        diff = self.lines_diff
+
+        diff[np.abs(diff) < self.toll] = 0
+        cumdiff = np.cumsum(np.insert(diff*self.corr_factor, 0, 0))
+
+        return (data.T - cumdiff)
+
+    def plot_lines_diff(self, ax=None, size=None, pyplot=True):
+        if ax is None:
+            figure = create_figure(size=size, pyplot=pyplot)
+            ax = figure.add_subplot(111)
+        ax.plot(np.abs(self.lines_diff))
+        ax.axhline(self.toll, color='red')
+        return ax
+
+
+class VerticalConcatenate(Topo):
+    def __init__(self, src):
+        """ Initialize a topo. """
+        super().__init__(src[0])
+        self.pos_nm = np.sum([s.pos_nm for s in src], axis=0) / 2
+        self.size_nm[1] = np.sum([s.size_nm[1] for s in src])
+        self.src_list = src
+
+    @property
+    def data(self):
+        return np.concatenate([s.data for s in reversed(self.src_list)], axis=1)
+
+
+class DriftCorrection(Topo):
+    def __init__(self, src, order=1):
+        super().__init__(src)
+        self.order = order
+
+    @property
+    def data(self):
+        data, means, fits, lines = self.get_corrected_data()
+        return data
+
+    def get_corrected_data(self):
+        data = super().data
+        means = np.mean(data, axis=0)
+        lines = np.arange(means.size)
+        fits = np.poly1d(np.polyfit(lines, means, self.order))(lines)
+        corrdata = data - fits
+        return corrdata, means, fits, lines
+
+    def plot_fit(self, ax=None, size='small', pyplot=True):
+        if ax is None:
+            figure = create_figure(size=size, pyplot=pyplot)
+            ax = figure.add_subplot(111)
+        data, means, fits, lines = self.get_corrected_data()
+        ax.plot(lines, means)
+        ax.plot(lines, fits)
+        return ax
+
+
+class SubstractAverage(Topo):
+    @property
+    def data(self):
+        data = super().data
+        return data - np.mean(data, axis=0)
 class Multiply(Topo):
     def __init__(self, src, mult):
         super().__init__(src.channel_number, src.sxm)

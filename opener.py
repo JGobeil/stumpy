@@ -1,3 +1,6 @@
+""" Deprecated """
+
+
 import os
 from glob import glob
 
@@ -7,10 +10,10 @@ from collections import ChainMap
 
 from .plotting import get_figsize
 from .sxmfile import SxmFile
-from .sxmfile import ChannelSet
+from .sxmfile import TopoSet
 from .datfile import BiasSpec
 
-from . import topo_plot_defaults
+from . import defaults
 
 class Opener:
     def __init__(self,
@@ -24,7 +27,7 @@ class Opener:
         self.sxmname = sxmname
         self.specsname = specsname
 
-        self.sxmplot_config = ChainMap(topo_plot_defaults)
+        self.sxmplot_config = ChainMap(defaults["topoplot"])
         if sxmplot_config is not None:
             self.sxmplot_config.update(**sxmplot_config)
 
@@ -77,7 +80,7 @@ class Opener:
             chn = []
             for sxm in sxms:
                 chn.extend(sxm.filter_channels(channels))
-            return ChannelSet(*chn)
+            return TopoSet(*chn)
 
         N = len(numbers)
         if N == 1:

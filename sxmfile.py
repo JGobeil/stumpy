@@ -1,12 +1,8 @@
 """Open and parse an sxm file"""
 
-import hashlib
-
 import numpy as np
 import pandas as pd
 from collections import ChainMap
-from collections import UserList
-import fnmatch
 import io
 import re
 
@@ -14,16 +10,15 @@ from .helper import get_logger
 from .helper.fileparser import ColonHeaderFile
 from .helper.fileparser import Parse
 from .helper.lazy import lazy_property
-from .plotting import create_figure, add_title, get_figsize
-from .plotting import no_grid, no_axis, no_ticks
-from .topo.topo import Topo
+from .topo import Topo
+from .topo import TopoSet
 
-from . import topo_plot_defaults
+from . import defaults
 
 log = get_logger(__name__)
 
 __author__ = 'Jeremie Gobeil'
-__version__ = '1.7'
+__version__ = '2.0'
 
 _multipass_re = re.compile(".*\[P([0-9]+)\].*")
 
@@ -34,60 +29,47 @@ class SxmFile(ColonHeaderFile):
     When a new object is created only the header is read an kept in
     memory. The channels data will be read and kept in memory when
     accessing the channel data.
-
-    #TODO: Parsing of scan with different forward and backward settings
     """
     header_end = ':SCANIT_END:'
     dataoffset = 4
 
-    def __init__(self, filename, sxmplot_config=None):
+    def __init__(self, filename, plot_defaults=None, channels=None):
         """ Open a sxm file.
 
         Parameters
         ----------
         filename : str
             name of the file to open
-        use_cache: bool
-            if true use memory cache for the channels
+        plot_defaults: dict
+            default configuration for the plot
         """
+        if len(filename) > 3 and filename[-4] is not '.':
+            filename = filename + ".sxm"
         super().__init__(filename)
 
-        self.sxmplot_config = ChainMap(topo_plot_defaults)
-        if sxmplot_config is not None:
-            self.sxmplot_config.update(**sxmplot_config)
+        self.plot_defaults = ChainMap(defaults['topoplot'])
+        if plot_defaults is not None:
+            self.plot_defaults.new_child(plot_defaults)
 
         if self.is_ok:
-            #self.channels = {}
-            #self.channels.update(**{self.channels[i].name: self.channels[i]
-            #                        for i in range(self.number_of_channels)})
-            self.channels = ChannelSet([SxmChannel(i, self) for i in
-                                        range(self.number_of_channels)])
+            if channels is None:
+                channels = defaults['channels']
+            self.channels = TopoSet([Topo(SxmChannel(i, self)) for i in
+                                     range(self.number_of_channels)]
+                                    ).filter_by_name(channels)
+
+    def __getitem__(self, item):
+        return self.channels[item]
 
     def set_plot_defaults(self, **kwargs):
-        self.sxmplot_config.update(**kwargs)
+        """ Set new value for the default plots"""
+        self.plot_defaults.update(**kwargs)
 
-    def filter_channel_names(self, pattern):
-        return fnmatch.filter(self.channel_names, pattern)
-
-    def filter_channels(self, pattern):
-        names = self.filter_channel_names(pattern)
-        return [self.channels[name] for name in names]
-
-    def plot(self, ax=None, channel=None, **kwargs):
+    def plot(self, channel=None, ax=None, **kwargs):
         if channel is None:
-            channel = 0
-        return self.channels[channel].plot(ax=ax, **kwargs)
-
-    @lazy_property
-    def uid(self):
-        """An unique identifier for the scan. It as the format
-        'SXM-YYYYMMDD-HHMMSS-xxx' where xxx is the first 3 value of the
-        md5 sum of the original filename."""
-        return '-'.join([
-            'SXM',
-            self.record_datetime.strftime('%Y%m%d-%H%M%S'),
-            hashlib.md5(self.original_filename.encode()).hexdigest()[0:3],
-        ])
+            return self.channels.plot(ax=ax, **kwargs)
+        else:
+            return self.channels[channel].plot(ax=ax, **kwargs)
 
     @lazy_property
     def size_nm_str(self):
@@ -99,22 +81,20 @@ class SxmFile(ColonHeaderFile):
         pxx, pxy = self.size_px
         return "%d px" % pxx if pxx == pxy else "%dx%d px" % (pxx, pxy)
 
-    def __hash__(self):
-        return hash(self.uid)
-
-    def __eq__(self, other):
-        return self.__hash__() == other.__hash__()
-
     def __repr__(self):
-        return "SxmFile - '%s' - [%s-%s]" % (
-            self.filename, self.size_nm_str, self.size_px_str)
+        if self.is_ok:
+            return "SxmFile - '%s' - [%s-%s]" % (
+                self.filename, self.size_nm_str, self.size_px_str)
+        else:
+            return "SxmFile - Error opening file '%s'." % (
+                self.filename)
+
 
     @lazy_property
     def info(self):
         return {
             'path': self.filename,
             'obj': self,
-            'uid': self.uid,
             'name': self.name,
             'datetime': self.record_datetime,
             'bias': self.bias,
@@ -142,10 +122,13 @@ class SxmFile(ColonHeaderFile):
     @lazy_property
     def serie_number(self):
         """The sequential number within the serie."""
-        return int(self.original_filename[-7:-4])
+        sn = self.serie_name
+        of = self.original_filename
+        return int(of[of.rfind(sn) + len(sn):-4])
 
     @lazy_property
     def name(self):
+        "Name of the sxmfile, i.e. serie name + number."
         return "%s%.3d" % (self.serie_name, self.serie_number)
 
     @lazy_property
@@ -160,6 +143,7 @@ class SxmFile(ColonHeaderFile):
 
     @lazy_property
     def acquisition_time_s(self):
+        """ The time it took for acquisition"""
         return float(self.header['ACQ_TIME'])
 
     @lazy_property
@@ -299,70 +283,18 @@ class SxmFile(ColonHeaderFile):
         """ The multipass configuration in pandas.DataFrame format."""
         return pd.read_table(io.StringIO(self.header['Multipass-Config']))
 
-class ChannelSet(UserList):
-    def __init__(self, channels=[]):
-        super().__init__()
-        self._name2number = {}
-        self.add(*channels)
 
-    def filter(self, **kwargs):
-        chn = [c for c in self]
-        for key, value in kwargs.items():
-            if key == 'name':
-                chn = [c for c in chn if fnmatch.fnmatch(c.name, value)]
-        return ChannelSet(chn)
-
-    def plot(self, ncols=3, **kwargs):
-        params = kwargs.copy()
-
-        N = len(self)
-        nrows = int(np.ceil(N/ncols))
-
-        if 'size' not in params:
-            params['size'] = 'small'
-
-        sc, sr = get_figsize(size=params['size'], shape='square')
-        params['size'] = (sc*ncols, sr*nrows)
-
-        fig = create_figure(**params)
-        axes = fig.subplots(nrows=nrows, ncols=ncols)
-
-        for i, ax in enumerate(axes.flatten()):
-            if i < N:
-                self[i].plot(ax=ax, **params)
-            else:
-                no_axis(ax)
-        return fig, axes
-
-    def __getitem__(self, key):
-        if isinstance(key, str):
-            return self.data[self._name2number[key]]
-        else:
-            return self.data[key]
-
-    def __repr__(self):
-        return "ChannelSet(%s)" % ', '.join([c.name for c in self])
-
-    def add(self, *channels):
-        i = len(self)
-        self.extend(channels)
-        for j, c in enumerate(channels):
-            self._name2number[c.name] = i+j
-
-
-
-
-# Modification and plotting of sxm channel
 class SxmChannel:
-    def __init__(self, channel_number: int, sxm: SxmFile):
+    """ Channel loader"""
+    def __init__(self, name_or_number: int, sxm: SxmFile):
 
         """ Get the raw numpy array of a channel."""
-        self.channel_number = channel_number
-        self.channel_name = sxm.channel_names[channel_number]
+        self.number = name_or_number
+        self.name = sxm.name + '.' + sxm.channel_names[name_or_number]
         self.sxm = sxm
         self.channel = self
-        self.number = channel_number
-        self.name = sxm.channel_names[channel_number]
+        self.number = name_or_number
+        self.name = sxm.name + '.' + sxm.channel_names[name_or_number]
         self.direction = self.name[-3:]
 
         self.bias = sxm.bias
@@ -370,6 +302,7 @@ class SxmChannel:
         self.scan_speed_nm_s = sxm.scan_speed_nm_s
 
         if sxm.is_multipass:
+            # #TODO: add other multipass info (speed, ...)
             P = _multipass_re.findall(self.name)
             if len(P) > 1:
                 log.wrn("Found multiple pass in when parsing %s."
@@ -388,17 +321,6 @@ class SxmChannel:
                 self.current = mp['Z_Setp_override_value'] * 1e9
             self.scan_speed_nm_s *= mp['Speed_factor']
 
-        self.plot_defaults = sxm.sxmplot_config.new_child()
-
-        self.topo = Topo(self)
-
-    def set_plot_defaults(self, **kwargs):
-        self.plot_defaults.update(**kwargs)
-
-    def plot(self, ax=None, **kwargs):
-        params = dict(**self.plot_defaults)
-        params.update(**kwargs)
-        return self.topo.plot(ax=ax, **params)
 
     @lazy_property
     def data(self):
@@ -406,86 +328,28 @@ class SxmChannel:
         so data[0, 1] give the pixels above the bottom left corner. """
         sxm = self.sxm
         with sxm.file as f:
-            f.seek(sxm.datastart + self.channel_number * sxm.chunk_size)
+            f.seek(sxm.datastart + self.number * sxm.chunk_size)
             raw = f.read(sxm.chunk_size)
             data = np.frombuffer(raw, dtype='>f4').reshape(*sxm.shape)
 
         if sxm.direction == 'down':
             data = np.flipud(data)
-        if self.channel_number & 0x1:
+        if self.number & 0x1:
             data = np.fliplr(data)
         return data.T
 
-    def subtract_average(self, direction=None):
-        return SxmChannel_SubtractAverage(self, direction=direction)
-
-    @property
+    @lazy_property
     def bias_str(self):
         b = self.bias
         return "%.3g mV" % (b * 1000) if b < 1 else "%.3g V" % b
 
-    @property
+    @lazy_property
     def current_str(self):
         c = self.current
         return "%.3g pA" % (c * 1000) if c < 1 else "%.3g nA" % c
 
-    def _repr_html_(self):
-        return self.topo._repr_html_()
 
-    @property
-    def size_nm(self):
-        return self.sxm.size_nm
-
-    @property
-    def pos_nm(self):
-        return self.sxm.pos_nm
-
-    @property
-    def angle(self):
-        return self.sxm.angle
-
-    @property
-    def size_px(self):
-        """ The size in pixels as numpy.array"""
-        return np.array(self.data.shape)
-
-
-
-class SxmChannel_SubtractAverage(SxmChannel):
-    def __init__(self, src: SxmChannel, direction=None):
-        """ Subtract Average of each line (default) of columns.
-
-        Parameters
-        ----------
-        direction: str
-            Direction in with to subtract average. None or 'x' subtract
-            average in the 'horizontal' direction'. 'y' for subtraction in
-            the 'vertical' direction'.
-        """
-        self.src = src
-        self.direction = direction
-        super().__init__(src.number, src.sxm)
-
-    @property
-    def direction(self):
-        return self._direction
-
-    @direction.setter
-    def direction(self, value):
-        if value in [None, 'x']:
-            self._direction = 1
-        elif value in ['y', ]:
-            self._direction = 0
-        else:
-            log.err('Not a valid direction: %s' % value)
-
-    @lazy_property
-    def data(self):
-        data = super().data
-        return np.transpose(
-                np.transpose(data)
-                - np.mean(data, axis=self._direction)
-                )
-
-
+    def __getattr__(self, name):
+        """ If the attribute don't exist, try the sxm attribute."""
+        return self.sxm.__getattribute__(name)
 

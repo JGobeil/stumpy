@@ -7,6 +7,7 @@ from os.path import split as psplit
 from os.path import splitext as psplitext
 import re
 from datetime import datetime
+from glob import glob
 
 import numpy as np
 import pandas as pd
@@ -46,19 +47,25 @@ class FileParserBase:
 
         self.path = filename
         if not isfile(self.path):
-            for path in search_path:
-                path = ossep(pjoin(path, filename))
+            for spath in search_path:
+                path = ossep(pjoin(spath, filename))
                 if isfile(path):
                     self.path = path
                     break
+                elif filename[0] is not '*':
+                    gl = glob(ossep(pjoin(spath, "*" + filename)))
+                    if len(gl) == 1:
+                        self.path = gl[0]
+                        break
 
-        self.filename = psplit(filename)[-1]
+
+        self.filename = psplit(self.path)[-1]
         self.is_ok = False
 
         if not isfile(self.path):
             log.err("Can not open file %s", self.path)
-
-        self.header = self.get_header()
+        else:
+            self.header = self.get_header()
 
     def get_header(self):
         self.is_ok = True
@@ -66,10 +73,12 @@ class FileParserBase:
 
     @property
     def fn_noext(self):
+        """ Filename without extension"""
         return psplitext(self.filename)[0]
 
     @property
     def file(self):
+        """ Get the opened file """
         return open(self.path, 'rb')
 
 
