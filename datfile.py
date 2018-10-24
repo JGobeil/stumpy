@@ -311,4 +311,3 @@ class BiasSpec(GenericDatFile):
         ax.get_figure().savefig(bts, format='png')
         bts.seek(0)
         return base64.b64encode(bts.getvalue()).decode()
-

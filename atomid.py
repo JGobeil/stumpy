@@ -128,7 +128,7 @@ class _AtomId:
                 for c in methods[0].conditions:
                     axis[0].axvspan(c[0], c[1], color='0.8', alpha=0.5)
 
-            s.data.plot(s.keys.V, s.keys.dIdV, ax=axis[0])
+            s.data.plot(s.keys.V, s.keys.dIdV_tilt_corrected, ax=axis[0])
             axis[0].set_title(s.serie_number)
             axis[0].legend().remove()
 
@@ -177,10 +177,10 @@ class AverageId(_AtomId):
         self.pts_value = []
         self.pts_ok = []
         for s in specs:
-            lockin = s.data[s.keys.LI]
+            dIdV = s.data[s.keys.dIdV_tilt_corrected]
             bias = s.data[s.keys.V]
             pts = np.array([
-                lockin[bias.between(c[0], c[1])].mean()
+                dIdV[bias.between(c[0], c[1])].mean()
                 for c in self.conditions])
             pts -= np.min(pts)
             pts /= np.max(pts)

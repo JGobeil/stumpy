@@ -56,7 +56,7 @@ class BinaryClosing(_TopoScipyNdImage):
 
 
 class Floor(Topo):
-    def __init__(self, limit, src, data_limit=None):
+    def __init__(self, src, limit, data_limit=None, value=0.0):
         super().__init__(src)
 
         self.limit = limit
@@ -64,75 +64,67 @@ class Floor(Topo):
             self.data_limit = src
         else:
             self.data_limit = data_limit
+        self.value = 0.0
 
     @property
     def data(self):
-        src = self.src
-        srcdata = src.data
-
-        zmin = np.min(srcdata)
-        zmax = np.max(srcdata)
-
-        zlimit = zmin + (zmax - zmin)*self.limit
-        data = self.src.data - zlimit
-        data[data < 0] = 0
-
-        return data
-
-
-class Ceil(Topo):
-    def __init__(self, limit, src, data_limit=None):
-        super().__init__(src)
-
-        self.limit = limit
-        if data_limit is None:
-            self.data_limit = src
-        else:
-            self.data_limit = data_limit
-
-    @property
-    def data(self):
-        src = self.src
-        srcdata = src.data
-
-        zmin = np.min(srcdata)
-        zmax = np.max(srcdata)
-
-        zlimit = zmax - (zmax - zmin)*self.limit
-        data = self.src.data - zlimit
-        data[data > 0] = 0
-
-        return data
-
-
-class Binary(Topo):
-    def __init__(self, src, limit=0.1, limit_src=None, value=(0, 1)):
-        super().__init__(src.channel_number, src.sxm)
-        self.src = src
-        self.limit = limit
-        self.limit_src = limit_src
-        self.value = value
-
-    @property
-    def data(self):
-        if self.limit_src is None:
-            src = self.src
-        else:
-            src = self.limit_src
-
         data = self.src.data
 
         zmin = np.min(data)
         zmax = np.max(data)
 
         zlimit = zmin + (zmax - zmin)*self.limit
-
-        cond = data < zlimit
-
-        data[cond] = self.value[0]
-        data[np.logical_not(cond)] = self.value[1]
+        data[(data - zlimit) < 0] = 0
 
         return data
+
+
+class Ceil(Topo):
+    def __init__(self, src, limit, data_limit=None, value=0.0):
+        super().__init__(src)
+
+        self.limit = limit
+        if data_limit is None:
+            self.data_limit = src
+        else:
+            self.data_limit = data_limit
+        self.value = 0
+
+    @property
+    def data(self):
+        data = self.src.data
+
+        zmin = np.min(data)
+        zmax = np.max(data)
+
+        zlimit = zmax - (zmax - zmin)*self.limit
+        data[(data - zlimit) > 0] = value
+
+        return data
+
+
+class Binary(Topo):
+	def __init__(self, src, limit=0.1, value=(0, 1)):
+		super().__init__(src)
+		self.limit = limit
+		self.value = value
+
+	@property
+	def data(self):
+		data = self.src.data
+
+		zmin = np.min(data)
+		zmax = np.max(data)
+
+		zlimit = zmin + (zmax - zmin)*self.limit
+		print(zlimit)
+
+		cond = data < zlimit
+
+		data[cond] = self.value[0]
+		data[np.logical_not(cond)] = self.value[1]
+
+		return data
 
 
 class CorrectTipChange(Topo):
@@ -218,17 +210,18 @@ class DriftCorrection(Topo):
 class SubstractAverage(Topo):
     @property
     def data(self):
-        data = super().data
+        data = self.src.data
         return data - np.mean(data, axis=0)
+		
+		
 class Multiply(Topo):
-    def __init__(self, src, mult):
-        super().__init__(src.channel_number, src.sxm)
-        self.src = src
-        self.mult = mult
+    def __init__(self, src, other):
+        super().__init__(src)
+        self.other = other
 
     @property
     def data(self):
-        if isinstance(self.mult, Topo):
-            return self.src.data * self.mult.data
-        else:
-            return self.src.data * self.mult
+        data1 = self.src.data
+        data2 = self.other.data
+        return data1 * data2
+        
