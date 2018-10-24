@@ -47,9 +47,9 @@ class SxmFile(ColonHeaderFile):
             filename = filename + ".sxm"
         super().__init__(filename)
 
-        self.plot_defaults = ChainMap(defaults['topoplot'])
+        self.plot_defaults = ChainMap(defaults['topoplot']).new_child()
         if plot_defaults is not None:
-            self.plot_defaults.new_child(plot_defaults)
+            self.plot_defaults.update(plot_defaults)
 
         if self.is_ok:
             if channels is None:

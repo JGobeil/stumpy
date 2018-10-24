@@ -11,15 +11,15 @@ from collections import UserList
 import fnmatch
 from scipy.interpolate import RectBivariateSpline
 
-from helper.lazy import lazy_property
-from plotting import create_figure
-from plotting import no_axis, no_grid, no_ticks
-from plotting import add_title
-from plotting import get_figsize
-from helper import get_logger
-from helper.image import writetopo
-from helper.image import encodetopo
-from helper.image import normdata
+from .helper.lazy import lazy_property
+from .plotting import create_figure
+from .plotting import no_axis, no_grid, no_ticks
+from .plotting import add_title
+from .plotting import get_figsize
+from .helper import get_logger
+from .helper.image import writetopo
+from .helper.image import encodetopo
+from .helper.image import normdata
 log = get_logger(__name__)
 
 from . import topoinfo_formatter
@@ -251,7 +251,8 @@ class Topo:
     def is_in(self, xy):
         p = self.map_topo2plot(xy)
         return np.all(p > 0) and np.all(p < self.size_nm)
-
+		
+		
 class InterpolatedTopo(Topo):
     def __init__(self, src):
         super().__init__(src)
