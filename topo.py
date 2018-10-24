@@ -30,13 +30,14 @@ class Topo:
         """ If source is an iterable create an iterable of Topo. Allow batch
         processing. """
         try:
-            obj = src.__class__([cls(s, *args, **kwargs) for s in src])
+            obj = src.__class__([cls(s, listpos=i, *args, **kwargs)
+                                 for i, s in enumerate(src)])
         except TypeError:
             obj = super().__new__(cls)
         return obj
 
     """ A class with the Topo 2D data, it size and pos. ."""
-    def __init__(self, src, *args, **kwargs):
+    def __init__(self, src, listpos=None, *args, **kwargs):
         """ Initialize a topo. """
         self.src = src
         self.sxm = src.sxm
@@ -47,9 +48,14 @@ class Topo:
         self.name = src.name
         self.minmax = None
         self.plot_defaults = self.src.plot_defaults.new_child()
+        self.listpos = listpos
 
     def set_plot_defaults(self, **kwargs):
         self.plot_defaults.update(**kwargs)
+
+    @property
+    def isinlist(self):
+        return self.listpos is not None
 
     @property
     def bl_corner(self):
@@ -251,8 +257,8 @@ class Topo:
     def is_in(self, xy):
         p = self.map_topo2plot(xy)
         return np.all(p > 0) and np.all(p < self.size_nm)
-		
-		
+
+
 class InterpolatedTopo(Topo):
     def __init__(self, src):
         super().__init__(src)

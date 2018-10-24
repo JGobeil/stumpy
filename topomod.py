@@ -7,8 +7,8 @@ from .topo import Topo
 class _TopoScipyNdImage(Topo):
     _ndimagefunc = None
 
-    def __init__(self, src, **params):
-        super().__init__(src)
+    def __init__(self, src, listpos, **params):
+        super().__init__(src, listpos=listpos)
         self.params = params
 
     @property
@@ -56,15 +56,15 @@ class BinaryClosing(_TopoScipyNdImage):
 
 
 class Floor(Topo):
-    def __init__(self, src, limit, data_limit=None, value=0.0):
-        super().__init__(src)
+    def __init__(self, src, limit, data_limit=None, value=0.0, **kwargs):
+        super().__init__(src, **kwargs)
 
         self.limit = limit
         if data_limit is None:
             self.data_limit = src
         else:
             self.data_limit = data_limit
-        self.value = 0.0
+        self.value = value
 
     @property
     def data(self):
@@ -80,15 +80,15 @@ class Floor(Topo):
 
 
 class Ceil(Topo):
-    def __init__(self, src, limit, data_limit=None, value=0.0):
-        super().__init__(src)
+    def __init__(self, src, limit, data_limit=None, value=0.0, **kwargs):
+        super().__init__(src, **kwargs)
 
         self.limit = limit
         if data_limit is None:
             self.data_limit = src
         else:
             self.data_limit = data_limit
-        self.value = 0
+        self.value = value
 
     @property
     def data(self):
@@ -104,8 +104,8 @@ class Ceil(Topo):
 
 
 class Binary(Topo):
-	def __init__(self, src, limit=0.1, value=(0, 1)):
-		super().__init__(src)
+	def __init__(self, src, limit=0.1, value=(0, 1), **kwargs):
+		super().__init__(src, **kwargs)
 		self.limit = limit
 		self.value = value
 
@@ -128,8 +128,8 @@ class Binary(Topo):
 
 
 class CorrectTipChange(Topo):
-    def __init__(self, src, toll=None, corr_factor=1):
-        super().__init__(src)
+    def __init__(self, src, toll=None, corr_factor=1, **kwargs):
+        super().__init__(src, **kwargs)
         if toll is not None:
             self.toll = toll
         else:
@@ -165,23 +165,9 @@ class CorrectTipChange(Topo):
         ax.axhline(self.toll, color='red')
         return ax
 
-
-class VerticalConcatenate(Topo):
-    def __init__(self, src):
-        """ Initialize a topo. """
-        super().__init__(src[0])
-        self.pos_nm = np.sum([s.pos_nm for s in src], axis=0) / 2
-        self.size_nm[1] = np.sum([s.size_nm[1] for s in src])
-        self.src_list = src
-
-    @property
-    def data(self):
-        return np.concatenate([s.data for s in reversed(self.src_list)], axis=1)
-
-
 class DriftCorrection(Topo):
-    def __init__(self, src, order=1):
-        super().__init__(src)
+    def __init__(self, src, order=1, **kwargs):
+        super().__init__(src, **kwargs)
         self.order = order
 
     @property
@@ -212,16 +198,21 @@ class SubstractAverage(Topo):
     def data(self):
         data = self.src.data
         return data - np.mean(data, axis=0)
-		
-		
+
+
 class Multiply(Topo):
-    def __init__(self, src, other):
-        super().__init__(src)
+    def __init__(self, src, other, **kwargs):
+        super().__init__(src, **kwargs)
         self.other = other
 
     @property
     def data(self):
         data1 = self.src.data
-        data2 = self.other.data
+        if self.isinlist:
+            try:
+                data2 = self.other[self.listpos].data
+            except TypeError:
+                data2 = self.other.data
+        else:
+            data2 = self.other.data
         return data1 * data2
-        
