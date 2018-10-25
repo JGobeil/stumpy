@@ -7,7 +7,7 @@ from .topo import Topo
 class _TopoScipyNdImage(Topo):
     _ndimagefunc = None
 
-    def __init__(self, src, listpos, **params):
+    def __init__(self, src, listpos=None, **params):
         super().__init__(src, listpos=listpos)
         self.params = params
 
