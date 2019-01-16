@@ -45,18 +45,20 @@ class FileParserBase:
             The filename
         """
 
-        self.path = filename
+        self.path = str(filename)
         if not isfile(self.path):
             for spath in search_path:
-                path = ossep(pjoin(spath, filename))
+                path = ossep(pjoin(spath, str(filename)))
                 if isfile(path):
                     self.path = path
                     break
-                elif filename[0] is not '*':
-                    gl = glob(ossep(pjoin(spath, "*" + filename)))
+                elif str(filename)[0] is not '*':
+                    s = ossep(pjoin(spath, "*" + str(filename)))
+                    gl = glob(s)
                     if len(gl) == 1:
                         self.path = gl[0]
                         break
+
 
 
         self.filename = psplit(self.path)[-1]
