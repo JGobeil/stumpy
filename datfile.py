@@ -55,12 +55,31 @@ class GenericDatFile(TabHeaderFile):
 
     @lazy_property
     def datetime(self):
-        return Parse.datetime(self.header['Date'])
+        if 'Date' in self.header:
+            return Parse.datetime(self.header['Date'])
+        if 'Saved Date' in self.header:
+            return Parse.datetime(self.header['Saved Date'])
+        return None
 
     @lazy_property
     def number(self):
         return int(self.filename[-7:-4])
-
+    
+    @lazy_property
+    def experiment(self):
+        return self.header["Experiment"]
+    
+    @lazy_property
+    def info(self):
+        return {
+            "x (nm)": self.x_nm,
+            "y (nm)": self.y_nm,
+            "datetime": self.datetime,
+            "experiment": self.experiment
+        }
+    
+    def __repr__(self):
+        return "GenericDatFile(%s)" % self.filename
 
 class BiasSpec(GenericDatFile):
 
@@ -91,9 +110,11 @@ class BiasSpec(GenericDatFile):
         'LIR': 'Lock-In R [V]',
         'NdIdV': 'NdI/dV [S]',  # numerical dI/dV (from current)
         'dIdV': 'dI/dV [μS]',
+        'd2IdV2': '$d^2I/dV^2 (\muS)$',
         'dIdV_LI': 'dI/dV [μS] (from lock-in)',
         'dIdV_FIT': 'dI/dV [μS] (from numerical fit)',
         'Field': 'Field [mT]',
+        'Gauss': "dI/dV [μS] (gaussian)"
     })
 
     def __init__(self,
@@ -108,6 +129,9 @@ class BiasSpec(GenericDatFile):
                  constant_current=False,  # if the spectroscopy is at constant current
                  search_names=None,  # override some search names
                  field_names=None,  # override some field names
+                 correct_bias_offset=False,  # automatic bias offset correction (True=automatic, float=manual)
+                 hamming=0, # hamming filtering of the dI/dV
+                 legend=True,  # False for no legend
                  ):
         # read file and parse header
         super().__init__(filename)
@@ -123,8 +147,11 @@ class BiasSpec(GenericDatFile):
         self.constant_current = constant_current
         self.search_names = BiasSpec.search_names.new_child(search_names)
         self.field_names = BiasSpec.field_names.new_child(field_names)
-        self.info = {}
-
+        self.correct_bias_offset = correct_bias_offset
+        self._hamming = hamming
+        self.legend = legend
+        
+     
         if LI not in ['LIY', 'LIX']:
             self.is_ok = False
             #log.wrn("Lock-In channes should be 'LIX' or 'LIY'")
@@ -134,6 +161,18 @@ class BiasSpec(GenericDatFile):
             self.is_ok = False
             #log.wrn("%s is not as BiasSpec file.", self.filename)
             return
+
+    @property
+    def bias(self):
+        return self.data[self.keys.Bias]
+
+    @property
+    def dIdV(self):
+        return self.data[self.keys.dIdV]
+
+    @property
+    def current(self):
+        return self.data[self.keys.Current]
 
     def set_units(self, name, unit):
 
@@ -184,6 +223,11 @@ class BiasSpec(GenericDatFile):
 
         V = raw[rk.Bias]
         I = raw[rk.Current]
+        if self.correct_bias_offset is True:
+            V -= np.interp(0, I, V)
+        elif self.correct_bias_offset is not False:
+            V -= self.correct_bias_offset
+            
         LI = raw[rk.LI]
 
         cal = {}
@@ -224,8 +268,17 @@ class BiasSpec(GenericDatFile):
                 cal[kd[key]] = cal[kd[key]] / factor
             elif key in rkd:
                 cal[kd[key]] = raw[rkd[key]] / factor
-
-        return pd.DataFrame(cal)
+                
+        df = pd.DataFrame(cal)
+        
+        if self._hamming > 0:
+            df[k.dIdV] = df.rolling(
+                self._hamming, 
+                win_type="hamming", 
+                min_periods=0,
+                center=True,
+            ).mean()[k.dIdV]
+        return df
 
     @lazy
     def keys(self):
@@ -282,9 +335,11 @@ class BiasSpec(GenericDatFile):
             label = "%s" % self.fn_noext
 
         if ax is None:
-            figure = create_figure(size=size, pyplot=pyplot, dpi=dpi,
+            fig = create_figure(size=size, pyplot=pyplot, dpi=dpi,
                                    shape='golden')
-            ax = figure.add_subplot(111)
+            ax = fig.add_subplot(111)
+        else:
+            fig = ax.get_figure()
 
         ax = self.data.plot(x=_x, y=_y, ax=ax, label=label, **kwargs)
 
@@ -293,6 +348,9 @@ class BiasSpec(GenericDatFile):
 
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
+        
+        if self.legend is False:
+            ax.legend().remove()
 
         if save is not False:
             if save is True:
@@ -304,7 +362,7 @@ class BiasSpec(GenericDatFile):
                 filename = save
             ax.get_figure().savefig(filename)
 
-        return ax
+        return fig, ax
 
     @property
     def name(self):
@@ -328,15 +386,46 @@ class BiasSpec(GenericDatFile):
 
     @lazy_property
     def serie_name(self):
+        if self.filename.endswith(".xz"):
+            return os.path.basename(self.filename)[:-10]
         return os.path.basename(self.filename)[:-7]
 
     @lazy_property
     def serie_number(self):
+        if self.filename.endswith(".xz"):
+            return int(os.path.basename(self.filename)[-10:-7])
         return int(os.path.basename(self.filename)[-7:-4])
 
     @lazy_property
     def pixels(self):
         return int(self.header['Bias Spectroscopy>Num Pixel'])
+    
+    @lazy_property
+    def hold(self):
+        if self.header['Z-Ctrl hold'] == "FALSE":
+            return False
+        return True
+
+    @lazy_property
+    def info(self):
+        return {
+            'filename': self.filename,
+            'pixels': self.pixels,
+            'sweep start': self.v_start,
+            'sweep end': self.v_end,
+            'datetime': self.datetime
+        }
+    
+    @lazy_property
+    def dfentry(self):
+        return {
+            'path': self.path,
+            'pixels': self.pixels,
+            'sweep start': self.v_start,
+            'sweep end': self.v_end,
+            'datetime': self.datetime,
+            'hold': self.hold
+        }
 
     def get_base64_plot(self, **kwargs):
         ax = self.plot(pyplot=False, **kwargs)

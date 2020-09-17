@@ -46,7 +46,7 @@ class Topo:
         self.size_nm = src.size_nm.copy()
         self.angle = src.angle
         self.name = src.name
-        self.minmax = None
+        self._minmax = None
         self.plot_defaults = self.src.plot_defaults.new_child()
         self.listpos = listpos
 
@@ -122,11 +122,11 @@ class Topo:
         p = np.asarray(pos)
         return (p - self.size_nm/2) @ self.inv_rotation_matrix + self.pos_nm
 
-    def abs2topo(self, abspos):
-        return (abspos - self.pos_nm) @ self.rotation_matrix.T + self.size_nm/2
+    def map_abs2topo(self, abspos):
+        return (np.asarray(abspos) - self.pos_nm) @ self.inv_rotation_matrix + self.size_nm/2
 
     def nm2px(self, value):
-        return np.mean(self.size_px / self.size_nm)
+        return value * np.mean(self.size_px / self.size_nm)
 
     @property
     def modstr(self):
@@ -162,9 +162,11 @@ class Topo:
         absolute_pos = params.pop('absolute_pos')
 
         if ax is None:
-            figure = create_figure(size=size, pyplot=pyplot, dpi=dpi,
+            fig = create_figure(size=size, pyplot=pyplot, dpi=dpi,
                                    shape='square')
-            ax = figure.add_subplot(111)
+            ax = fig.add_subplot(111)
+        else:
+            fig = ax.get_figure()
 
         if absolute_pos:
             x1, y1 = self.pos_nm - self.size_nm/2
@@ -177,8 +179,8 @@ class Topo:
         ax.imshow(
             self.imdata,
             extent=(x1, x2, y1, y2),
-            vmin=None if mm is None else mm[0],
-            vmax=None if mm is None else mm[1],
+            vmin=mm[0],
+            vmax=mm[1],
             **params
         )
 
@@ -223,7 +225,7 @@ class Topo:
 
             ax.get_figure().savefig(fn)
             log.info("Plot saved on %s", fn)
-        return ax
+        return fig, ax
 
     def _repr_html_(self):
         return ''.join([
@@ -258,13 +260,28 @@ class Topo:
         p = self.map_topo2plot(xy)
         return np.all(p > 0) and np.all(p < self.size_nm)
 
+    @property
+    def minmax(self):
+        if self._minmax is None:
+            data = self.imdata
+            return data.min(), data.max()
+        else:
+            return self._minmax
+
+    @minmax.setter
+    def minmax(self, minmax):
+        self._minmax = minmax
+
+
+
 
 class InterpolatedTopo(Topo):
     def __init__(self, src):
         super().__init__(src)
         self.pixels = src.size_px.max()
+        self.rotation = 0.0
 
-        self._interpolation = RectBivariateSpline(
+        self.interpolation = RectBivariateSpline(
             np.linspace(0, src.size_nm[0], src.size_px[0]),
             np.linspace(0, src.size_nm[1], src.size_px[1]),
             src.data,
@@ -274,10 +291,28 @@ class InterpolatedTopo(Topo):
     @property
     def data(self):
         xmin, xmax, ymin, ymax = self.cuts
-        return self._interpolation(
-            np.linspace(xmin, xmax, self.pixels[0]),
-            np.linspace(ymin, ymax, self.pixels[1]),
-        )
+
+        theta = self._rotation
+
+        if theta == 0.0:
+            x = np.linspace(xmin, xmax, self.pixels[0])
+            y = np.linspace(ymin, ymax, self.pixels[1])
+            return self.interpolation(x, y)
+
+        c = np.cos(-theta)
+        s = np.sin(-theta)
+        R = np.array([[c, -s], [s, c]])
+
+        dx = 0.5*(xmax - xmin)
+        dy = 0.5*(ymax - ymin)
+
+        y, x = np.meshgrid(np.linspace(-dx, dx, self.pixels[0]),
+                           np.linspace(-dy, dy, self.pixels[1]))
+
+        xr = x*c - y*s + xmin + dx
+        yr = x*s + y*c + ymin + dy
+
+        return self.interpolation(xr, yr, grid=False)
 
     @property
     def size_nm(self):
@@ -323,6 +358,14 @@ class InterpolatedTopo(Topo):
     def pixels(self, N):
         self._pixels = np.max(N)
 
+    @property
+    def rotation(self):
+        return np.rad2deg(self._rotation)
+
+    @rotation.setter
+    def rotation(self, theta):
+        self._rotation = np.deg2rad(theta)
+
 
 class TopoSet(UserList):
     def __init__(self, topos=[]):
@@ -362,7 +405,7 @@ class TopoSet(UserList):
         names_set = set(flatten)
         return TopoSet([topodict[n] for n in names if n in names_set])
 
-    def plot(self, ncols=3, **kwargs):
+    def plot(self, ncols=4, **kwargs):
         params = kwargs.copy()
 
         N = len(self)
@@ -375,7 +418,7 @@ class TopoSet(UserList):
         params['size'] = (sc*ncols, sr*nrows)
 
         fig = create_figure(**params)
-        axes = fig.subplots(nrows=nrows, ncols=ncols)
+        axes = fig.subplots(nrows=nrows, ncols=ncols, squeeze=False)
 
         for i, ax in enumerate(axes.flatten()):
             if i < N:

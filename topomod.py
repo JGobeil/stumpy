@@ -216,3 +216,34 @@ class Multiply(Topo):
         else:
             data2 = self.other.data
         return data1 * data2
+
+class Substract(Topo):
+    def __init__(self, src, other, **kwargs):
+        super().__init__(src, **kwargs)
+        self.other = other
+
+    @property
+    def data(self):
+        data1 = self.src.data
+        if self.isinlist:
+            try:
+                data2 = self.other[self.listpos].data
+            except TypeError:
+                data2 = self.other.data
+        else:
+            data2 = self.other.data
+        return data1 - data2
+
+
+class Zeroed(Topo):
+    def __init__(self, src, limits, **kwargs):
+        super().__init__(src, **kwargs)
+        self.limits = limits
+
+    @property
+    def data(self):
+        data = self.src.data
+
+        x1, x2, y1, y2 = self.limits
+        zero = np.mean(data[x1:x2, y1:y2])
+        return data - zero

@@ -45,4 +45,4 @@ from .topo import TopoSet
 
 # .dat file
 from .datfile import BiasSpec
-
+from .datfile import GenericDatFile

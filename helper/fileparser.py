@@ -8,6 +8,7 @@ from os.path import splitext as psplitext
 import re
 from datetime import datetime
 from glob import glob
+import lzma
 
 import numpy as np
 import pandas as pd
@@ -81,7 +82,10 @@ class FileParserBase:
     @property
     def file(self):
         """ Get the opened file """
-        return open(self.path, 'rb')
+        if self.path.endswith("xz"):
+            return lzma.open(self.path, 'rb')
+        else:
+            return open(self.path, 'rb')
 
 
 class RegexHeaderParser(FileParserBase):
@@ -211,7 +215,7 @@ class TabHeaderFile(RegexHeaderParser):
         try:
             with self.file as f:
                 f.seek(self.datastart)
-                return pd.read_table(f, sep='\t', )
+                return pd.read_csv(f, sep='\t', )
         except Exception as e:
             self.is_ok = False
             log.err(str(e))

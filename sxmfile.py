@@ -43,7 +43,8 @@ class SxmFile(ColonHeaderFile):
         plot_defaults: dict
             default configuration for the plot
         """
-        if len(filename) > 3 and filename[-4] is not '.':
+        filename = str(filename)
+        if len(filename) > 3 and not (filename.endswith(".sxm") or filename.endswith(".sxm.xz")):
             filename = filename + ".sxm"
         super().__init__(filename)
 
@@ -67,7 +68,7 @@ class SxmFile(ColonHeaderFile):
 
     def plot(self, channel=None, ax=None, **kwargs):
         if channel is None:
-            return self.channels.plot(ax=ax, **kwargs)
+            return self.channels.plot(**kwargs)
         else:
             return self.channels[channel].plot(ax=ax, **kwargs)
 
@@ -108,6 +109,19 @@ class SxmFile(ColonHeaderFile):
             'serie_number': self.serie_number,
             'Current (nA)': self.current_nA,
             #'Z (m)': self.Z_m,
+        }
+    
+    @lazy_property
+    def dfentry(self):
+        return{
+            'path': self.path,
+            'datetime': self.record_datetime,
+            'bias': self.bias,
+            'size_nm^2': self.size_nm[0]*self.size_nm[1],
+            'size_px': self.size_px[0]*self.size_px[1],
+            'nb_channels': self.number_of_channels,
+            'Current (nA)': self.current_nA,
+            "is_multipass": self.is_multipass,
         }
 
     @lazy_property
@@ -176,6 +190,10 @@ class SxmFile(ColonHeaderFile):
     def resolution(self):
         """ pixels per nm (np.array with shape [2,]"""
         return self.size_px / self.size_nm
+    	
+    @lazy_property
+    def pixels(self):
+        return np.prod(self.size_px)
 
     @lazy_property
     def scan_speed_nm_s(self):
@@ -248,12 +266,12 @@ class SxmFile(ColonHeaderFile):
     @lazy_property
     def current_pA(self):
         """ Scanning current in pA"""
-        return self.current_A * 1e15
+        return self.current_A * 1e12
 
     @lazy_property
     def current_nA(self):
         """ Scanning current in nA"""
-        return self.current_A * 1e12
+        return self.current_A * 1e9
 
     @lazy_property
     def current_A(self):
@@ -281,7 +299,7 @@ class SxmFile(ColonHeaderFile):
     @lazy_property
     def multipass_config(self):
         """ The multipass configuration in pandas.DataFrame format."""
-        return pd.read_table(io.StringIO(self.header['Multipass-Config']))
+        return pd.read_csv(io.StringIO(self.header['Multipass-Config']), sep='\t')
 
 
 class SxmChannel:
@@ -321,6 +339,14 @@ class SxmChannel:
                 self.current = mp['Z_Setp_override_value'] * 1e9
             self.scan_speed_nm_s *= mp['Speed_factor']
 
+
+    @property
+    def current_nA(self):
+        return self.current
+
+    @property
+    def current_pA(self):
+        return self.current * 1000
 
     @lazy_property
     def data(self):
