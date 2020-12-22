@@ -31,7 +31,7 @@ topoinfo_formatter = {
         "{sxm.serie_number:03} - {channel.name}\n"
         "{topo.size_nm_str} - "
         "{channel.current_str}@{channel.bias_str}"
-        )
+    )
 }
 
 search_path = ['.', ]
